@@ -1,0 +1,12 @@
+[project]
+name = "fello-renewal-worklist"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "psycopg[binary]>=3.2,<4", "scikit-learn>=1.6,<2", "numpy>=2,<3", "jinja2>=3.1.6,<4", "httpx>=0.28,<1", "python-multipart>=0.0.20", "itsdangerous>=2.2,<3"]
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "pip-audit>=2.9,<3"]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 110
