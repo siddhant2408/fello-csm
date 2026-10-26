@@ -28,4 +28,4 @@ Configure the key securely in server `.env`, select a structured-output capable 
 Check out the previously tested Git commit, rebuild the shared image and recreate web/worker. Current schema is additive; no general migration rollback framework is claimed. Back up the database before future schema changes. Do not use volume deletion as deployment rollback.
 
 ## Outstanding access
-GitHub PAT cannot create repositories (HTTP 403). Owner must create the private repository and grant token access. Oracle SSH endpoint/user and approved key access are not yet provided. OpenRouter key is not configured. Do not represent these steps as completed.
+The owner-created private repository is https://github.com/siddhant2408/fello-csm; repository visibility and token push access were verified. Oracle SSH endpoint/user and approved key access are not yet provided. OpenRouter key is not configured. Do not represent remote deployment or live-provider verification as completed.
