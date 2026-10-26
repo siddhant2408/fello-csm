@@ -5,11 +5,6 @@ import json
 import math
 from collections import Counter
 
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-
 from app.features import NAMES, VERSION, rules_score, vector
 
 
@@ -18,6 +13,11 @@ def sigmoid(x):
 
 
 def train_tenant(train: list[dict], calibration: list[dict]) -> dict:
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
     # Count independent renewal outcomes, not repeated weekly snapshots.
     distinct = {r["renewal_id"]: r["label"] for r in train}
     counts = Counter(distinct.values())

@@ -31,7 +31,7 @@ services:
   web:
     image: fello-renewal-worklist:local
     build: .
-    environment: &runtime
+    environment:
       DATABASE_URL: postgresql://fello_app:${APP_DB_PASSWORD}@db/fello
       SESSION_SECRET: ${SESSION_SECRET}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -48,7 +48,9 @@ services:
     image: fello-renewal-worklist:local
     pull_policy: never
     command: ["python", "-m", "app.processing"]
-    environment: *runtime
+    environment:
+      DATABASE_URL: postgresql://fello_app:${APP_DB_PASSWORD}@db/fello
+      SIMULATION_AS_OF: ${SIMULATION_AS_OF:-2026-06-01T12:00:00+00:00}
     depends_on:
       init:
         condition: service_completed_successfully

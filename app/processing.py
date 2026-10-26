@@ -22,7 +22,28 @@ def clock():
     return datetime.fromisoformat(fixed) if fixed else datetime.now(UTC)
 
 
+def validate_event(event: dict, as_of: datetime) -> dict:
+    from typing import Literal
+
+    from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+
+    class SourceEvent(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+        id: str = Field(min_length=1, max_length=160)
+        source: Literal["salesforce", "gmail", "zendesk", "product", "stripe"]
+        source_key: str = Field(min_length=1, max_length=200)
+        occurred_at: AwareDatetime
+        received_at: AwareDatetime
+        value: float = Field(ge=0, le=1000000, allow_inf_nan=False)
+
+    parsed = SourceEvent.model_validate(event)
+    if as_of.tzinfo is None or parsed.received_at > as_of:
+        raise ValueError("Receipt must be available at the aware scoring clock")
+    return parsed.model_dump(mode="json")
+
+
 def ingest_event(conn, event: dict, as_of: datetime) -> bool:
+    event = validate_event(event, as_of)
     # Canonical identity is derived from scoped aliases, never caller-provided account_id.
     account = conn.execute(
         "SELECT account_id FROM aliases WHERE source=%s AND source_key=%s",
@@ -106,6 +127,10 @@ def compute_snapshot(conn, account_id, as_of):
 
 def process_one(tenant: str) -> bool:
     with transaction(tenant) as conn:
+        # Lease expiry must be checked on every poll, not just daily reconciliation.
+        conn.execute(
+            "UPDATE jobs SET status='failed',last_error='LeaseExpired',lease_until=NULL WHERE status='running' AND lease_until<now() AND attempts>=5"
+        )
         job = conn.execute("""UPDATE jobs SET status='running',attempts=attempts+1,lease_until=now()+interval '2 minutes'
             WHERE id=(SELECT id FROM jobs WHERE
               ((status='pending' AND available_at<=now()) OR (status='running' AND lease_until<now())) AND attempts<5
@@ -146,10 +171,6 @@ def main():
         if today != last_reconcile:
             for tenant in TENANTS:
                 with transaction(tenant) as conn:
-                    # A crashed final claim becomes inspectably failed, rather than stuck forever.
-                    conn.execute(
-                        "UPDATE jobs SET status='failed',last_error='LeaseExpired' WHERE status='running' AND lease_until<now() AND attempts>=5"
-                    )
                     reconcile(conn, today)
             last_reconcile = today
         worked = False

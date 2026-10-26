@@ -81,3 +81,18 @@ def test_incoming_account_identity_cannot_cross_tenant():
             "SELECT tenant_id,account_id,quarantined FROM events WHERE id=%s", (eid,)
         ).fetchone()
         assert event == {"tenant_id": "t1", "account_id": None, "quarantined": True}
+
+
+def test_expired_final_attempt_becomes_visible_failure():
+    eid = "expired-" + uuid4().hex
+    with transaction("t2") as conn:
+        conn.execute(
+            """INSERT INTO jobs(tenant_id,event_id,account_id,as_of,status,attempts,lease_until)
+            VALUES('t2',%s,'a02001','2026-06-01','running',5,now()-interval '3 minutes')""",
+            (eid,),
+        )
+    process_one("t2")
+    with transaction("t2") as conn:
+        assert (
+            conn.execute("SELECT status FROM jobs WHERE event_id=%s", (eid,)).fetchone()["status"] == "failed"
+        )
