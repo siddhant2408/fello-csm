@@ -62,7 +62,7 @@ def train_tenant(train: list[dict], calibration: list[dict]) -> dict:
 
 
 def predict(model: dict, features: dict) -> dict:
-    if model["feature_version"] != features["version"] if "feature_version" in model else False:
+    if "feature_version" in model and model["feature_version"] != features["version"]:
         raise ValueError("Feature/model version mismatch")
     if model["kind"] == "rules_fallback":
         return {

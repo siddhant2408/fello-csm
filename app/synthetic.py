@@ -52,8 +52,9 @@ def generate(seed: int = 42, count: int = 5000) -> dict:
                         "churned": bool(rng.random() < outcome_probability),
                     }
                 )
-                # 13 + 13 + 14 = 40 events/account; source records can be aggregate usage samples.
-                n = 14 if cycle == 2 else 13
+                # Generate a history reservoir, then sample without replacement globally.
+                # Stop contract history at non-renewal; do not resurrect churned accounts.
+                n = 40
                 for j in range(n):
                     source = (
                         connected[j % len(connected)] if j < len(connected) else str(rng.choice(connected))
@@ -87,8 +88,18 @@ def generate(seed: int = 42, count: int = 5000) -> dict:
                             "value": value,
                         }
                     )
+                if renewals[-1]["churned"]:
+                    break
+    selected = rng.choice(len(events), size=count * 40, replace=False)
+    events = [events[int(i)] for i in selected]
     rng.shuffle(events)
-    return {"seed": seed, "accounts": accounts, "renewals": renewals, "events": events}
+    return {
+        "generator_version": "survival/v2",
+        "seed": seed,
+        "accounts": accounts,
+        "renewals": renewals,
+        "events": events,
+    }
 
 
 def save(dataset: dict, path="data/dataset.json"):

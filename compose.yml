@@ -1,0 +1,59 @@
+name: fello-worklist
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: fello
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run provision first}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fello"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 1g
+  init:
+    image: fello-renewal-worklist:local
+    pull_policy: never
+    command: ["python", "-m", "app.bootstrap"]
+    environment:
+      ADMIN_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db/fello
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+      OPENBLAS_NUM_THREADS: "1"
+    volumes:
+      - generated-data:/srv/fello/data
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 2g
+  web:
+    image: fello-renewal-worklist:local
+    build: .
+    environment: &runtime
+      DATABASE_URL: postgresql://fello_app:${APP_DB_PASSWORD}@db/fello
+      SESSION_SECRET: ${SESSION_SECRET}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4.1-mini}
+      SIMULATION_AS_OF: ${SIMULATION_AS_OF:-2026-06-01T12:00:00+00:00}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 512m
+  worker:
+    image: fello-renewal-worklist:local
+    pull_policy: never
+    command: ["python", "-m", "app.processing"]
+    environment: *runtime
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 512m
+volumes:
+  postgres-data:
+  generated-data:
