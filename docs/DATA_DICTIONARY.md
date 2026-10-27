@@ -1,4 +1,4 @@
-# Canonical dictionary — account-risk-features/v1
+# Canonical dictionary — account-risk-features/v2
 
 Source of truth: `app/features.py`. No separate prompt definition of risk or health exists.
 
@@ -15,11 +15,15 @@ Source of truth: `app/features.py`. No separate prompt definition of risk or hea
 All windows are inclusive at the cutoff. Feature values are deterministic; no LLM assigns them.
 
 - `usage_drop`: one minus mean usage samples in the last 45 days divided by mean samples 45–180 days ago (denominator floored at 1), clipped to [-1,1]. Missing either sample window imputes 0 for ranking but fails quality gating. This is a change in observed samples, not a proven change in all actual usage.
+- `usage_level`: natural log of (1 + mean usage samples in the last 45 days). Missing recent samples impute the neutral constant 4.0 (median in 2024 training rows) and fail quality gating; imputing 0 would read as extreme non-use. Absolute level reflects account health better than change alone, but it is not normalised per licensed seat; seats are not simulated and a real connector would need that normalisation.
 - `urgent_tickets`: sum of Zendesk urgent support counts over 60 days, capped at 20. These synthetic records are non-overlapping counts; a real connector would need ticket lifecycle deduplication.
 - `payment_failures`: sum of Stripe failed-payment indicators over 60 days, capped at 10. Not a currency balance.
-- `contact_gap`: days since the latest Gmail metadata event in the 180-day window divided by 180; missing contact imputes 1. This measures observed contact recency, not customer sentiment or response quality.
-- `coverage`: fraction of the five configured sources connected, not a guarantee each source delivered complete history.
+- `contact_gap`: days since the latest Gmail metadata event in the 180-day window divided by 180; no contact in 180 days with Gmail connected is 1 (observed silence). Gmail not connected imputes the neutral constant 60/180, the median observed gap in 2024 training rows: a disconnected source is unknown, not silent. This measures observed contact recency, not customer sentiment or response quality.
+- `coverage`: fraction of the five configured sources connected, not a guarantee each source delivered complete history. Displayed and used for quality gating; not a model input, because it describes data quality rather than risk.
+- Salesforce: loaded, traceable and displayed, but deliberately not a feature. In this world it records CSM-logged activity, which reflects current CSM effort rather than account health; using it would teach the model the existing guesswork.
 - `quality`: sufficient only if coverage >=0.6 and both recent and prior usage samples exist. Otherwise insufficient_data. This is a conservative heuristic, not statistically calibrated confidence.
+
+Model inputs (`NAMES` in `app/features.py`): usage_drop, usage_level, urgent_tickets, payment_failures, contact_gap. v1 snapshots remain readable; a v2 model refuses v1 features.
 
 ## Model and ranking
 - Outcome: full non-renewal at the next renewal; downgrades excluded. Label becomes available seven days after the simulated renewal.

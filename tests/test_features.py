@@ -1,6 +1,7 @@
+import math
 from datetime import UTC, datetime, timedelta
 
-from app.features import compute_features
+from app.features import NAMES, NEUTRAL_CONTACT_GAP, NEUTRAL_USAGE_LEVEL, compute_features
 
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
 ACCOUNT = {"connected_sources": ["product", "zendesk", "stripe", "gmail", "salesforce"]}
@@ -27,8 +28,23 @@ def test_future_and_not_yet_received_events_are_excluded():
 def test_disconnected_usage_is_not_zero_usage():
     result = compute_features({"connected_sources": ["gmail"]}, [], NOW)
     assert result["values"]["coverage"] == 0.2
+    assert result["values"]["usage_level"] == NEUTRAL_USAGE_LEVEL
     assert result["quality"] == "insufficient_data"
     assert result["evidence_ids"] == []
+
+
+def test_disconnected_gmail_is_neutral_but_connected_silence_is_maximum():
+    disconnected = compute_features({"connected_sources": ["product"]}, [], NOW)
+    silent = compute_features(ACCOUNT, [], NOW)
+    assert disconnected["values"]["contact_gap"] == NEUTRAL_CONTACT_GAP
+    assert silent["values"]["contact_gap"] == 1
+
+
+def test_usage_level_reads_recent_samples_only():
+    result = compute_features(ACCOUNT, [event(value=99), event(age=100, value=1, id="old")], NOW)
+    assert result["values"]["usage_level"] == round(math.log1p(99), 5)
+    assert result["values"]["coverage"] == 1.0  # displayed, but not a model input
+    assert "coverage" not in NAMES
 
 
 def test_evidence_only_includes_used_window():
