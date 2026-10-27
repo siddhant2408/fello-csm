@@ -6,7 +6,7 @@
 3. Follow one account from canonical source aliases through event/ingestion times, features, model and immutable snapshot.
 4. Ingest a Stripe event using the CLI while the worker runs. Refresh and explain the new snapshot and preserved old one. The ingest command does not invoke scoring.
 5. Show duplicate/retry tests and real Postgres RLS tests. Explain why an app-owner connection would invalidate the isolation test.
-6. Show evaluation: train/calibration/test cutoffs, weekly capacity, repeated touches and false positives. State plainly that the fitted model did not consistently beat rules. High recall is partly capacity saturation, not proof of predictive skill.
+6. Show evaluation: train/calibration/test cutoffs, weekly capacity, repeated touches and false positives. Show the capacity curve: the model beats rules on AUC and gives ~30% more useful calls than random at 3 reviews a week, but at 10 every method converges because 10 slots cover every eligible account within the 4-week cooldown. The gain is fewer wasted calls, not more churned accounts reached. Say plainly that the real weekly capacity for risk reviews is the number to confirm with the VP before claiming the model saves time.
 7. Generate a draft. Explain allowlisted fact selection, deterministic sentences, citations, cache and human review. With no key it is explicitly a template, not an LLM demo.
 8. Finish with what was skipped and what fails first at 10×.
 
@@ -22,6 +22,7 @@ Contributions are weighted feature terms in the calibrated log-odds sum. They de
 - What commits atomically with event ingestion? What happens if a worker dies after claiming?
 - How do source IDs, tenant IDs and canonical account IDs differ?
 - Why does the DB policy not replace per-CSM application authorization?
+- If 10 slots cover everyone, why rank at all? Ranking only matters when risk-review slots are fewer than about 4–5 a week; the real number is a business input, not something the synthetic data can settle. The data also suggests scarcity isn't in renewal reviews (about 2 new renewals enter the window per CSM each week).
 - Why keep the model when its improvement is unproven? It demonstrates the required fitted-model path; this demo is not approval to deploy it to real accounts.
 - What does the LLM decide, and what can it never do?
 - How would you add retention/cold storage without breaking evidence links?
