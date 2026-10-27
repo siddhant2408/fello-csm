@@ -36,7 +36,17 @@ def main():
                 )
             )
         conn.execute(Path("app/schema.sql").read_text())
-        tables = ["accounts", "aliases", "renewals", "events", "models", "jobs", "snapshots", "drafts"]
+        tables = [
+            "accounts",
+            "aliases",
+            "renewals",
+            "events",
+            "models",
+            "jobs",
+            "snapshots",
+            "drafts",
+            "reviews",
+        ]
         for table in tables:
             ident = sql.Identifier(table)
             conn.execute(sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(ident))
@@ -48,7 +58,7 @@ def main():
                 ).format(ident)
             )
             conn.execute(sql.SQL("GRANT SELECT ON {} TO fello_app").format(ident))
-        conn.execute("GRANT INSERT ON events,jobs,snapshots,drafts TO fello_app")
+        conn.execute("GRANT INSERT ON events,jobs,snapshots,drafts,reviews TO fello_app")
         conn.execute("GRANT UPDATE ON jobs TO fello_app")
         conn.execute("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO fello_app")
         conn.execute("GRANT EXECUTE ON FUNCTION fello_login(text,text) TO fello_app")

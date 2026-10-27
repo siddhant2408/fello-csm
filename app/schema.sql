@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS drafts (
  tenant_id text NOT NULL, snapshot_id text NOT NULL, body jsonb NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(tenant_id,snapshot_id),
  FOREIGN KEY(tenant_id,snapshot_id) REFERENCES snapshots(tenant_id,id));
+CREATE TABLE IF NOT EXISTS reviews (
+ tenant_id text NOT NULL, id bigint GENERATED ALWAYS AS IDENTITY, account_id text NOT NULL,
+ csm_id text NOT NULL, reviewed_at timestamptz NOT NULL, PRIMARY KEY(tenant_id,id),
+ FOREIGN KEY(tenant_id,account_id) REFERENCES accounts);
+CREATE INDEX IF NOT EXISTS reviews_recent ON reviews(tenant_id,account_id,reviewed_at);
 CREATE TABLE IF NOT EXISTS users (
  username text PRIMARY KEY, id text NOT NULL UNIQUE, tenant_id text NOT NULL, csm_id text NOT NULL,
  password_hash text NOT NULL);

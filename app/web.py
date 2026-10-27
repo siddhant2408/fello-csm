@@ -15,8 +15,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.db import transaction
 from app.drafting import evidence_facts, generate_draft
+from app.policy import CAPACITY, COOLDOWN_DAYS, WINDOW_DAYS
 from app.processing import clock
-from app.queries import account_details, worklist
+from app.queries import account_details, owned_account, record_review, worklist
 
 
 @asynccontextmanager
@@ -88,6 +89,7 @@ def page(request, name, **context):
             "csrf": csrf_token(request),
             "user": request.session.get("user"),
             "simulation": os.environ.get("SIMULATION_AS_OF"),
+            "cooldown": COOLDOWN_DAYS,
             **context,
         },
     )
@@ -145,16 +147,30 @@ def index(request: Request):
         return RedirectResponse("/login", status_code=303)
     user = current_user(request)
     with transaction(user["tenant_id"]) as conn:
-        rows = worklist(conn, user)
+        lanes = worklist(conn, user)
         jobs = conn.execute("SELECT status,count(*) AS n FROM jobs GROUP BY status").fetchall()
-    return page(request, "worklist.html", rows=rows, jobs=jobs, as_of=clock())
+    return page(
+        request,
+        "worklist.html",
+        **lanes,
+        jobs=jobs,
+        as_of=clock(),
+        capacity=CAPACITY,
+        window=WINDOW_DAYS,
+    )
 
 
 @app.get("/api/worklist")
 def api_worklist(request: Request):
     user = current_user(request)
     with transaction(user["tenant_id"]) as conn:
-        return {"accounts": worklist(conn, user), "capacity": 10, "as_of": clock()}
+        lanes = worklist(conn, user)
+    return {
+        "accounts": lanes["ranked"],
+        "needs_data": lanes["needs_data"],
+        "capacity": CAPACITY,
+        "as_of": clock(),
+    }
 
 
 @app.get("/accounts/{account_id}")
@@ -187,6 +203,17 @@ def draft(request: Request, account_id: str, csrf: str = Form(max_length=100)):
                 (user["tenant_id"], snapshot["id"], Jsonb(body)),
             )
     return RedirectResponse(f"/accounts/{account_id}", status_code=303)
+
+
+@app.post("/accounts/{account_id}/reviewed")
+def reviewed(request: Request, account_id: str, csrf: str = Form(max_length=100)):
+    user = current_user(request)
+    verify_csrf(request, csrf)
+    with transaction(user["tenant_id"]) as conn:
+        if not owned_account(conn, user, account_id):
+            raise HTTPException(404, "Account not found")
+        record_review(conn, user, account_id)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.exception_handler(500)

@@ -31,7 +31,7 @@ Model inputs (`NAMES` in `app/features.py`): usage_drop, usage_level, urgent_tic
 - `priority`: internal ranking value; may be produced from imputed features or fallback rules and must not be displayed as a validated probability when probability is null.
 - `drivers`: feature contributions in calibrated log-odds; not causal explanations, not percentages that sum to probability.
 - `rules_fallback`: too few independent renewal outcomes to fit/calibrate. Never borrows another tenant's training data.
-- Worklist: up to 10 accounts assigned to the logged-in CSM, with known renewals in 60–112 days. Repeated weekly appearances consume weekly capacity; action/cooldown tracking is not implemented.
+- Worklist (policy in `app/policy.py`, shared with the evaluation): renewals known and due in 60–180 days for the logged-in CSM. Ranked lane: sufficient-quality snapshots ordered by priority, up to 10. Needs-data lane: everything else, ordered by renewal date; imputed priorities never rank it. Marking an account reviewed removes it from both lanes for 28 days (append-only `reviews` table). The evaluation replays the same cooldown and assumes every listed account is reviewed.
 
 ## Evidence and revisions
 Source events, model artifacts, score snapshots and drafts cannot be updated/deleted by the runtime role. Corrections append new source events with new IDs; real mutable-source correction semantics remain a connector design task. Snapshots record feature values, observations, evidence IDs, model version, as_of and an input hash. Generated fixture/model/report files have SHA-256 manifests. A new feature definition requires a new feature version and compatible retraining, never a prompt-only reinterpretation.
