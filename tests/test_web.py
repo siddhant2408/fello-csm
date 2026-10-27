@@ -29,6 +29,20 @@ def test_login_worklist_cross_tenant_and_csm_boundary():
         assert client.get("/").headers["content-security-policy"]
 
 
+def test_reviewed_account_leaves_both_lanes_and_is_csm_scoped():
+    import re
+
+    with TestClient(app, base_url="https://testserver") as client:
+        login(client)
+        csrf = re.search('name="csrf" value="([^"]+)"', client.get("/accounts/a00001").text).group(1)
+        assert client.post("/accounts/a00121/reviewed", data={"csrf": csrf}).status_code == 404
+        assert client.post("/accounts/a00001/reviewed", data={"csrf": "invalid"}).status_code == 403
+        assert client.post("/accounts/a00001/reviewed", data={"csrf": csrf}).status_code == 200
+        lanes = client.get("/api/worklist").json()
+        assert "a00001" not in {r["id"] for r in lanes["accounts"] + lanes["needs_data"]}
+        assert len(lanes["accounts"]) <= lanes["capacity"]
+
+
 def test_state_change_requires_csrf():
     with TestClient(app, base_url="https://testserver") as client:
         login(client)

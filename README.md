@@ -36,7 +36,7 @@ docker compose exec worker python -m app.cli status --tenant t1
 The event transaction queues the account. The separate worker processes it without a manual scoring command. Refresh the account and inspect its new snapshot. Repeat the exact source event ID through the ingestion function to test deduplication; the CLI intentionally creates a new ID on each invocation.
 
 ## Decisions and tradeoffs
-- **Worklist, not traffic-light dashboard:** capacity is 10 account reviews per CSM per week, within 60–112 days of renewal. Rankings include insufficient-data cases, visibly labelled unknown rather than green. No unsupported intervention recommendation is claimed.
+- **Worklist, not traffic-light dashboard:** capacity is 10 account reviews per CSM per week, within 60–180 days of renewal; a reviewed account sits out 28 days (`app/policy.py`). Accounts with enough data are ranked by priority; insufficient-data cases sit in a separate needs-data lane by renewal date, visibly labelled unknown rather than green. The 10 is a placeholder: the real number of weekly slots for risk reviews is a question for the business (see evaluation below). No unsupported intervention recommendation is claimed.
 - **Canonical Postgres model:** tenant-scoped accounts, source aliases, renewals, immutable source events, models, snapshots, jobs and drafts. Unknown aliases are quarantined rather than fuzzy-matched.
 - **Two event clocks:** occurred time and received time must both be at/before scoring time. Model training, calibration and final test are chronological; final test scoring begins after the model's release cutoff.
 - **Tenant-local logistic regression:** standardized training, plain JSON inference coefficients and separate logistic calibration. Small tenant gets an explicitly uncalibrated rule-based priority. Historical outcome labels are not loaded into the runtime database.
@@ -56,7 +56,17 @@ uv run python -m app.synthetic
 OPENBLAS_NUM_THREADS=1 uv run python -m app.evaluate
 ```
 
-`data/evaluation.json` is measured output: 2024 outcomes train, 2025 calibrate, 2026 tests. Test predictions occur on/after 2026-01-08. Capacity counts repeated weekly flags; catch rate counts distinct renewal episodes. High recall at capacity 10 is near saturation and **not evidence the model adds value**. Current fitted models do not consistently outperform the rules baseline; AUC is weak and many observations fail the coverage gate. The small tenant has no positive held-out outcomes in this seed, so recall/AUC are undefined. There is no claimed real retention uplift, causal benefit or statistically significant win.
+`data/evaluation.json` is measured output: 2024 outcomes train, 2025 calibrate, 2026 tests. Test predictions occur on/after 2026-01-08. The replay walks each CSM's weeks in order with the product's cooldown and compares the model, the rules baseline, ARR order and 20 random orders at 3, 5 and 10 reviews a week. Touch precision counts every weekly review; catch rate counts distinct renewal episodes.
+
+| Tenants t1 / t2 / t3 | Model | Rules | ARR |
+|---|---|---|---|
+| AUC | 0.69 / 0.70 / 0.72 | 0.61 / 0.62 / 0.62 | 0.51 / 0.48 / 0.57 |
+| Touch-precision lift over random, 3/week | 1.29 / 1.30 / 1.33 | 1.17 / 1.18 / 1.14 | 1.03 / 0.98 / 1.11 |
+| Same, 10/week | 1.01 / 1.01 / 1.00 | 1.00 / 1.01 / 1.00 | 1.01 / 1.00 / 1.01 |
+
+**Capacity 10 does not bind in this world.** A CSM has a median of 16–18 accounts in the ranked lane and each sits out four weeks after review, so about 4–5 reviews a week cover everyone; with 10 slots every ordering reaches every eligible account within a month and the methods converge. Ranking only matters below that: at 3 reviews a week roughly 30% more of the model's calls land on accounts that really churn. That is precision per call, not more saves: at 3/week the model reaches about as many distinct churned renewals as random or rules (t1 161 vs 167 rules of 183), just with fewer wasted calls. Whether ranking is worth having therefore depends on how many weekly slots CSMs actually spend on risk reviews, which this data cannot answer.
+
+Rows in the needs-data lane churn at the base rate, and some churned renewals never reach the ranked lane. The small tenant (t4) uses the rules fallback and has 2 churned renewals in the test year, too few for any metric to mean anything. There is no claimed real retention uplift, causal benefit or statistically significant win.
 
 ## Tests
 Full integration tests require an isolated demo database and no competing worker while deterministic claim/retry tests run. The test override binds Postgres only to loopback.

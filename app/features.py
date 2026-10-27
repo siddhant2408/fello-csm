@@ -1,11 +1,19 @@
-"""Canonical feature definition v1. Both event clocks enforce historical availability."""
+"""Canonical feature definition v2. Both event clocks enforce historical availability."""
 
 import math
 from datetime import datetime
 
-VERSION = "account-risk-features/v1"
-NAMES = ["usage_drop", "urgent_tickets", "payment_failures", "contact_gap", "coverage"]
+VERSION = "account-risk-features/v2"
+# Coverage is a data-quality gate, not a risk input. Salesforce activity reflects CSM effort,
+# not account health, so it is deliberately not a model input.
+NAMES = ["usage_drop", "usage_level", "urgent_tickets", "payment_failures", "contact_gap"]
 SOURCES = ["salesforce", "gmail", "zendesk", "product", "stripe"]
+# Median observed gap (about 60 days) in 2024 training rows with Gmail connected.
+# A disconnected source is unknown, not silent, so it must not impute maximum risk.
+NEUTRAL_CONTACT_GAP = 60 / 180
+# Median usage_level in 2024 training rows with recent samples. Imputing 0 would read as
+# extreme non-use and flatten the fitted usage relationship.
+NEUTRAL_USAGE_LEVEL = 4.0
 
 
 def timestamp(value):
@@ -41,11 +49,13 @@ def compute_features(account: dict, events: list[dict], as_of: datetime) -> dict
     )
     coverage = len(account["connected_sources"]) / len(SOURCES)
     quality = "sufficient" if coverage >= 0.6 and recent and prior else "insufficient_data"
+    gap = min(contacts, default=180) / 180 if "gmail" in account["connected_sources"] else NEUTRAL_CONTACT_GAP
     values = {
         "usage_drop": round(drop, 5),
+        "usage_level": round(math.log1p(current), 5) if current is not None else NEUTRAL_USAGE_LEVEL,
         "urgent_tickets": min(sum(tickets), 20),
         "payment_failures": min(sum(payments), 10),
-        "contact_gap": min(contacts, default=180) / 180,
+        "contact_gap": gap,
         "coverage": coverage,
     }
     return {
