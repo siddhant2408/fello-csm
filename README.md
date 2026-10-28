@@ -19,14 +19,18 @@ Open through an HTTPS reverse proxy or SSH tunnel. Users are `demo-t1` through `
 
 The web listener binds to **127.0.0.1:8080**. The normal Compose file publishes no database port. Neither server access nor a public URL is assumed to exist.
 
-## The replay clock is explicit
-`SIMULATION_AS_OF=2026-06-01T12:00:00+00:00` is a fixed historical demo clock, prominently displayed in the UI. Seed data spans earlier history and future records relative to this clock. Historical availability filters both timestamps; storing future fixture rows does not make them visible in computed state. To run a wall-clock installation, explicitly set `SIMULATION_AS_OF=` and ingest appropriate real-time data; the fixtures do not magically become current customer data.
+## The replay clock moves on its own
+The demo replays the synthetic world from `SIMULATION_AS_OF=2026-06-01T12:00:00+00:00` at `SIMULATION_SPEED=20` (one simulated day per 72 real minutes, so the replay lasts about 4.5 days), stopping at `SIMULATION_END=2026-09-01`. The current replay time is shown in the UI banner and `/health`. Web, worker and restarts share one clock, anchored to the wall time the database was first seeded (`replay` table).
+
+Bootstrap loads only events already received at the start. The other ~33k deliveries wait in `inbox`; the worker hands each one to the normal `ingest_event` path once the clock passes its `received_at`, which queues a rescore. Every simulated midnight the worker also rescores all accounts. So with no one touching it, late and new events arrive, snapshots are written and the worklist reorders. Throughput measured locally: ~40 jobs/s, so a day's 5,000-account rescore takes about 2 minutes. Raise the speed for a short live demo (96 = a day per 15 minutes).
+
+`SIMULATION_SPEED=0` freezes the clock at the start (tests use this). Restarting the replay from the beginning means reseeding: `docker compose down --volumes` discards this demo database. For a wall-clock installation set `SIMULATION_AS_OF=` and ingest real-time data; the fixtures do not become current customer data.
 
 ## What to try
 1. Sign in and open an account from the worklist.
 2. Inspect feature values, model contributions, source-event clocks and immutable snapshot identifiers.
 3. Prepare a draft. With no API key, the UI explicitly labels it `template_no_key`; it never pretends a model call occurred.
-4. Ingest a synthetic source event while the worker is running:
+4. Leave it running: the banner clock advances and accounts gain new snapshots as held-back events arrive. To inject one yourself while the worker is running:
 
 ```sh
 docker compose exec worker python -m app.cli event --tenant t1 --account a00120 --source stripe --value 1

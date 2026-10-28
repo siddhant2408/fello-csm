@@ -21,6 +21,7 @@ services:
       ADMIN_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db/fello
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
       DEMO_PASSWORD: ${DEMO_PASSWORD}
+      SIMULATION_AS_OF: ${SIMULATION_AS_OF:-2026-06-01T12:00:00+00:00}
       OPENBLAS_NUM_THREADS: "1"
     volumes:
       - generated-data:/srv/fello/data
@@ -37,6 +38,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4.1-mini}
       SIMULATION_AS_OF: ${SIMULATION_AS_OF:-2026-06-01T12:00:00+00:00}
+      SIMULATION_SPEED: ${SIMULATION_SPEED:-20}
+      SIMULATION_END: ${SIMULATION_END:-2026-09-01T00:00:00+00:00}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
     ports: ["127.0.0.1:8080:8080"]
     depends_on:
@@ -51,6 +54,8 @@ services:
     environment:
       DATABASE_URL: postgresql://fello_app:${APP_DB_PASSWORD}@db/fello
       SIMULATION_AS_OF: ${SIMULATION_AS_OF:-2026-06-01T12:00:00+00:00}
+      SIMULATION_SPEED: ${SIMULATION_SPEED:-20}
+      SIMULATION_END: ${SIMULATION_END:-2026-09-01T00:00:00+00:00}
     depends_on:
       init:
         condition: service_completed_successfully

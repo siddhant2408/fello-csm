@@ -41,6 +41,7 @@ def main():
             "aliases",
             "renewals",
             "events",
+            "inbox",
             "models",
             "jobs",
             "snapshots",
@@ -60,6 +61,9 @@ def main():
             conn.execute(sql.SQL("GRANT SELECT ON {} TO fello_app").format(ident))
         conn.execute("GRANT INSERT ON events,jobs,snapshots,drafts,reviews TO fello_app")
         conn.execute("GRANT UPDATE ON jobs TO fello_app")
+        conn.execute("GRANT INSERT,DELETE ON inbox TO fello_app")
+        conn.execute("GRANT SELECT ON replay TO fello_app")
+        conn.execute("INSERT INTO replay DEFAULT VALUES ON CONFLICT DO NOTHING")
         conn.execute("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO fello_app")
         conn.execute("GRANT EXECUTE ON FUNCTION fello_login(text,text) TO fello_app")
         if conn.execute("SELECT count(*) FROM accounts").fetchone()[0] == 0:
@@ -89,10 +93,34 @@ def main():
             ) as copy:
                 for r in dataset["renewals"]:
                     copy.write_row((r["tenant_id"], r["id"], r["account_id"], r["due_at"], r["known_at"]))
+            # Deliveries after the replay start are held back for the worker to ingest as the clock reaches them.
+            start = os.environ.get("SIMULATION_AS_OF")
+            start = datetime.fromisoformat(start) if start else None
+            held = [
+                e for e in dataset["events"] if start and datetime.fromisoformat(e["received_at"]) > start
+            ]
+            with conn.cursor().copy(
+                "COPY inbox(tenant_id,id,source,source_key,occurred_at,received_at,value) FROM STDIN"
+            ) as copy:
+                for e in held:
+                    copy.write_row(
+                        (
+                            e["tenant_id"],
+                            e["id"],
+                            e["source"],
+                            e["source_key"],
+                            e["occurred_at"],
+                            e["received_at"],
+                            e["value"],
+                        )
+                    )
+            held_ids = {e["id"] for e in held}
             with conn.cursor().copy(
                 "COPY events(tenant_id,id,account_id,source,source_key,occurred_at,received_at,value,quarantined) FROM STDIN"
             ) as copy:
                 for e in dataset["events"]:
+                    if e["id"] in held_ids:
+                        continue
                     copy.write_row(
                         (
                             e["tenant_id"],
@@ -127,12 +155,12 @@ def main():
         # Counts are verified before committing the seed transaction.
         counts = {
             t: conn.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(t))).fetchone()[0]
-            for t in ["accounts", "events", "renewals"]
+            for t in ["accounts", "events", "inbox", "renewals"]
         }
         if (
             counts["accounts"] != 5000
             or counts["renewals"] != len(dataset["renewals"])
-            or counts["events"] < 200000
+            or counts["events"] + counts["inbox"] < 200000
         ):
             raise ValueError("Unexpected existing dataset; refusing destructive reset")
         print(json.dumps({"seeded": counts, "role": "fello_app", "rls_tables": len(tables)}))

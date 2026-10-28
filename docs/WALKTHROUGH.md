@@ -2,7 +2,7 @@
 
 ## Narrative
 1. Business problem: 120 accounts, limited attention, missed signals. Why a worklist and why no automatic email?
-2. Open the UI: explicit replay clock and synthetic-data banner. Explain why unknown is not green.
+2. Open the UI: the replay clock in the banner advances on its own; show an account gaining a snapshot from a delivered event. Synthetic-data banner. Explain why unknown is not green.
 3. Follow one account from canonical source aliases through event/ingestion times, features, model and immutable snapshot.
 4. Ingest a Stripe event using the CLI while the worker runs. Refresh and explain the new snapshot and preserved old one. The ingest command does not invoke scoring.
 5. Show duplicate/retry tests and real Postgres RLS tests. Explain why an app-owner connection would invalidate the isolation test.

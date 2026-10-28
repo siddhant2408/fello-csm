@@ -88,7 +88,9 @@ def page(request, name, **context):
         context={
             "csrf": csrf_token(request),
             "user": request.session.get("user"),
-            "simulation": os.environ.get("SIMULATION_AS_OF"),
+            "simulation": clock().strftime("%Y-%m-%d %H:%M UTC")
+            if os.environ.get("SIMULATION_AS_OF")
+            else None,
             "cooldown": COOLDOWN_DAYS,
             **context,
         },
@@ -99,7 +101,7 @@ def page(request, name, **context):
 def health():
     with transaction(None) as conn:
         conn.execute("SELECT 1")
-    return {"status": "ok", "simulation_as_of": os.environ.get("SIMULATION_AS_OF")}
+    return {"status": "ok", "simulation_as_of": clock().isoformat()}
 
 
 @app.get("/login")
