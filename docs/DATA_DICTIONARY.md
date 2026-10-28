@@ -3,11 +3,13 @@
 Source of truth: `app/features.py`. No separate prompt definition of risk or health exists.
 
 ## Identity and clocks
-- `tenant_id`: customer organisation using this system, not the organisation's end customer.
+- `tenant_id`: customer organisation using this system, not the organisation's end customer. Registered in `tenants` (outside RLS, read-only to the app role); `accounts` references it and the worker/CLI iterate it.
 - `account_id`: canonical end-customer account within a tenant. Composite foreign keys include tenant.
 - `source_key`: source-local identity mapped by `(tenant_id,source,source_key)`; unknown aliases are quarantined.
 - `occurred_at`: when the source event happened; `received_at`: when it became available to this system.
-- `as_of`: historical scoring cutoff; event clocks must both be at/before this cutoff.
+- `as_of`: historical scoring cutoff; event clocks must both be at/before this cutoff. At runtime it is the replay clock (`clock()` in `app/processing.py`): `SIMULATION_AS_OF + (now − replay.started_at) × SIMULATION_SPEED`, capped at `SIMULATION_END`.
+- `inbox`: source deliveries whose `received_at` is after the replay start. A staging queue, not evidence: the worker deletes each row as it passes it to `ingest_event`, which writes the immutable `events` row and its job. Invalid deliveries are logged and dropped.
+- `replay.started_at`: wall time the database was first seeded; the one anchor shared by web, worker and restarts.
 - `known_at`: when renewal contract metadata became available; not the outcome date.
 - `due_at`: renewal decision date, not an outreach appointment.
 
