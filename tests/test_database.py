@@ -8,7 +8,7 @@ import pytest
 from psycopg.errors import InsufficientPrivilege
 
 from app.db import transaction
-from app.processing import ingest_event, process_one, reconcile
+from app.processing import ingest_event, process_one, reconcile, tenants
 
 pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="Postgres URL not configured")
 TENANT = "t1"
@@ -95,3 +95,9 @@ def test_reconciliation_is_idempotent():
         first = reconcile(conn, now)
         assert first > 0
         assert reconcile(conn, now) == 0
+
+
+def test_tenants_come_from_the_registry_which_the_app_role_cannot_edit():
+    assert tenants() == ["t1", "t2", "t3", "t4"]
+    with transaction(None) as conn, pytest.raises(InsufficientPrivilege):
+        conn.execute("INSERT INTO tenants(id) VALUES('t5')")
