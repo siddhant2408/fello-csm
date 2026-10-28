@@ -50,7 +50,7 @@ The event transaction queues the account. The separate worker processes it witho
 - **Least-privileged runtime:** app role is neither owner, superuser nor BYPASSRLS. No-context reads fail closed. Role grants prevent modification of event/snapshot/model artifacts. Only the initializer gets administrative credentials. Worker does not receive the OpenRouter key or session secret.
 
 ## Data realism and honest evaluation
-Seed 42 produces **5,000 accounts, 200,000 unique events and 11,454 renewal episodes**. Four tenants have 2,000 / 1,700 / 1,270 / 30 accounts. Missing source connections, sparse observations, unresolved aliases, delayed arrivals and shuffled input are explicit. Contract history stops after non-renewal. Product events are aggregate usage samples, Zendesk values are urgent-support counts, Stripe values indicate failed payments, and Gmail is metadata only.
+Seed 42 produces **5,000 accounts, 242,083 unique events (1,902 with unresolvable aliases, quarantined) and 11,201 renewal episodes (2,660 non-renewals)**. Four tenants have 2,000 / 1,700 / 1,270 / 30 accounts. Missing source connections, sparse observations, unresolved aliases, delayed arrivals and shuffled input are explicit. Contract history stops after non-renewal. Product events are aggregate usage samples, Zendesk values are urgent-support counts, Stripe values indicate failed payments, and Gmail is metadata only.
 
 Outcomes depend probabilistically on latent product fit, commercial pressure and shocks; observed features are noisy proxies, not the outcome formula. Events are sampled from eligible histories without replacement. This is still an invented world with simplified business dynamics.
 
