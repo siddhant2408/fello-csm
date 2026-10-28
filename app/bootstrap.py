@@ -36,6 +36,9 @@ def main():
                 )
             )
         conn.execute(Path("app/schema.sql").read_text())
+        conn.execute("GRANT SELECT ON tenants TO fello_app")
+        for tenant in sorted({a["tenant_id"] for a in dataset["accounts"]}):
+            conn.execute("INSERT INTO tenants(id) VALUES(%s) ON CONFLICT DO NOTHING", (tenant,))
         tables = [
             "accounts",
             "aliases",

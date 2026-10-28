@@ -5,7 +5,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from app.db import transaction
-from app.processing import TENANTS, clock, ingest_event, process_one, reconcile
+from app.processing import clock, ingest_event, process_one, reconcile, tenants
 
 
 def drain_tenant(tenant):
@@ -18,21 +18,24 @@ def drain_tenant(tenant):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["drain", "event", "status"])
-    parser.add_argument("--tenant", choices=TENANTS, default="t1")
+    parser.add_argument("--tenant", default="t1")
     parser.add_argument("--account", default="a00001")
     parser.add_argument(
         "--source", choices=["product", "zendesk", "gmail", "stripe", "salesforce"], default="zendesk"
     )
     parser.add_argument("--value", type=float, default=5)
     args = parser.parse_args()
+    known = tenants()
+    if args.tenant not in known:
+        parser.error(f"unknown tenant {args.tenant!r}; registered: {', '.join(known)}")
     now = clock()
     if args.command == "drain":
-        for tenant in TENANTS:
+        for tenant in known:
             with transaction(tenant) as conn:
                 reconcile(conn, now)
         with ThreadPoolExecutor(max_workers=4) as pool:
-            totals = list(pool.map(drain_tenant, TENANTS))
-        print(json.dumps({"processed": dict(zip(TENANTS, totals, strict=True)), "as_of": now.isoformat()}))
+            totals = list(pool.map(drain_tenant, known))
+        print(json.dumps({"processed": dict(zip(known, totals, strict=True)), "as_of": now.isoformat()}))
     elif args.command == "event":
         event = {
             "id": "incoming-" + uuid4().hex,

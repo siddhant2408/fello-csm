@@ -1,6 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Registry of customer organisations; the worker and CLI iterate it, so onboarding is a row, not a deploy.
+CREATE TABLE IF NOT EXISTS tenants (id text PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS accounts (
- tenant_id text NOT NULL, id text NOT NULL, name text NOT NULL, csm_id text NOT NULL,
+ tenant_id text NOT NULL REFERENCES tenants, id text NOT NULL, name text NOT NULL, csm_id text NOT NULL,
  connected_sources jsonb NOT NULL, arr bigint NOT NULL, created_at timestamptz NOT NULL,
  PRIMARY KEY(tenant_id,id));
 CREATE TABLE IF NOT EXISTS aliases (

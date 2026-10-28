@@ -15,7 +15,11 @@ from app.features import compute_features
 from app.model import predict
 
 log = logging.getLogger(__name__)
-TENANTS = ("t1", "t2", "t3", "t4")
+
+
+def tenants() -> list[str]:
+    with transaction(None) as conn:
+        return [r["id"] for r in conn.execute("SELECT id FROM tenants ORDER BY id")]
 
 
 @cache
@@ -197,17 +201,20 @@ def process_one(tenant: str) -> bool:
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    last_reconcile = None
+    reconciled = {}  # tenant -> last reconciled day; a newly onboarded tenant is scored on first sight
+    active, refreshed = [], 0.0
     while True:
+        if time.monotonic() - refreshed > 60:
+            active, refreshed = tenants(), time.monotonic()
         now = clock()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        if today != last_reconcile:
-            for tenant in TENANTS:
+        for tenant in active:
+            if reconciled.get(tenant) != today:
                 with transaction(tenant) as conn:
                     reconcile(conn, today)
-            last_reconcile = today
+                reconciled[tenant] = today
         worked = False
-        for tenant in TENANTS:
+        for tenant in active:
             with transaction(tenant) as conn:
                 worked = feed(conn, now) > 0 or worked
             worked = process_one(tenant) or worked
