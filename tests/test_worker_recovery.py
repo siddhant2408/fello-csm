@@ -6,7 +6,7 @@ import pytest
 from psycopg.errors import InsufficientPrivilege
 
 from app.db import transaction
-from app.processing import compute_snapshot, ingest_event, process_one
+from app.processing import compute_snapshot, feed, ingest_event, process_one
 
 pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="Needs Postgres")
 
@@ -96,3 +96,29 @@ def test_expired_final_attempt_becomes_visible_failure():
         assert (
             conn.execute("SELECT status FROM jobs WHERE event_id=%s", (eid,)).fetchone()["status"] == "failed"
         )
+
+
+def test_feed_ingests_only_received_deliveries_and_skips_invalid_ones():
+    now = datetime(2026, 6, 1, 13, tzinfo=UTC)
+    ok, bad, later = ("feed-" + uuid4().hex for _ in range(3))
+    with transaction("t3") as conn:
+        alias = conn.execute(
+            "SELECT source_key FROM aliases WHERE source='zendesk' ORDER BY account_id LIMIT 1"
+        ).fetchone()["source_key"]
+        for eid, received, value in (
+            (ok, now, 2),
+            (bad, now, -1),
+            (later, datetime(2027, 1, 1, tzinfo=UTC), 2),
+        ):
+            conn.execute(
+                """INSERT INTO inbox(tenant_id,id,source,source_key,occurred_at,received_at,value)
+                VALUES('t3',%s,'zendesk',%s,%s,%s,%s)""",
+                (eid, alias, now, received, value),
+            )
+        feed(conn, now)
+        assert conn.execute("SELECT 1 FROM jobs WHERE event_id=%s", (ok,)).fetchone()
+        assert not conn.execute("SELECT 1 FROM events WHERE id=%s", (bad,)).fetchone()
+        assert {
+            r["id"] for r in conn.execute("SELECT id FROM inbox WHERE id IN (%s,%s,%s)", (ok, bad, later))
+        } == {later}
+        conn.execute("DELETE FROM inbox WHERE id=%s", (later,))

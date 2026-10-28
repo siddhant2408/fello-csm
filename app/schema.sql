@@ -17,6 +17,14 @@ CREATE TABLE IF NOT EXISTS events (
  PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,account_id) REFERENCES accounts,
  CHECK(source IN ('salesforce','gmail','zendesk','product','stripe')));
 CREATE INDEX IF NOT EXISTS events_account_clock ON events(tenant_id,account_id,occurred_at,received_at);
+-- Source deliveries not yet received at the replay clock; the worker feeds them through ingestion.
+CREATE TABLE IF NOT EXISTS inbox (
+ tenant_id text NOT NULL, id text NOT NULL, source text NOT NULL, source_key text NOT NULL,
+ occurred_at timestamptz NOT NULL, received_at timestamptz NOT NULL, value double precision NOT NULL,
+ PRIMARY KEY(tenant_id,id));
+CREATE INDEX IF NOT EXISTS inbox_due ON inbox(tenant_id,received_at,id);
+CREATE TABLE IF NOT EXISTS replay (
+ one boolean PRIMARY KEY DEFAULT true CHECK(one), started_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS models (
  tenant_id text NOT NULL, version text NOT NULL, artifact jsonb NOT NULL, created_at timestamptz NOT NULL,
  PRIMARY KEY(tenant_id,version));

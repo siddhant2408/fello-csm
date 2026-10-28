@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from datetime import UTC, datetime, timedelta
+from functools import cache
 
 from psycopg.types.json import Jsonb
 
@@ -17,9 +18,23 @@ log = logging.getLogger(__name__)
 TENANTS = ("t1", "t2", "t3", "t4")
 
 
+@cache
+def replay_anchor() -> datetime:
+    # Wall time the replay began, written once at seed so web, worker and restarts share one clock.
+    with transaction(None) as conn:
+        return conn.execute("SELECT started_at FROM replay").fetchone()["started_at"]
+
+
 def clock():
-    fixed = os.environ.get("SIMULATION_AS_OF")
-    return datetime.fromisoformat(fixed) if fixed else datetime.now(UTC)
+    start = os.environ.get("SIMULATION_AS_OF")
+    if not start:
+        return datetime.now(UTC)
+    start = datetime.fromisoformat(start)
+    speed = float(os.environ.get("SIMULATION_SPEED") or 0)
+    if not speed:
+        return start
+    end = datetime.fromisoformat(os.environ.get("SIMULATION_END") or "2026-09-01T00:00:00+00:00")
+    return min(end, start + (datetime.now(UTC) - replay_anchor()) * speed)
 
 
 def validate_event(event: dict, as_of: datetime) -> dict:
@@ -71,6 +86,23 @@ def ingest_event(conn, event: dict, as_of: datetime) -> bool:
             (event["id"], account_id, as_of),
         )
     return row is not None
+
+
+def feed(conn, as_of: datetime, limit: int = 200) -> int:
+    """Deliver held-back source events whose receipt time the replay clock has reached."""
+    # DELETE..RETURNING hands each delivery to one transaction; a concurrent feeder deletes nothing twice.
+    rows = conn.execute(
+        """DELETE FROM inbox WHERE id IN (SELECT id FROM inbox WHERE received_at<=%s
+        ORDER BY received_at,id LIMIT %s) RETURNING *""",
+        (as_of, limit),
+    ).fetchall()
+    for row in rows:
+        try:
+            with conn.transaction():
+                ingest_event(conn, row, as_of)
+        except ValueError as exc:  # pydantic ValidationError included; a bad delivery must not block the feed
+            log.warning("feed_rejected tenant=%s event=%s error=%s", row["tenant_id"], row["id"], exc)
+    return len(rows)
 
 
 def reconcile(conn, as_of: datetime) -> int:
@@ -167,7 +199,8 @@ def main():
     logging.basicConfig(level=logging.INFO)
     last_reconcile = None
     while True:
-        today = clock().replace(hour=0, minute=0, second=0, microsecond=0)
+        now = clock()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         if today != last_reconcile:
             for tenant in TENANTS:
                 with transaction(tenant) as conn:
@@ -175,6 +208,8 @@ def main():
             last_reconcile = today
         worked = False
         for tenant in TENANTS:
+            with transaction(tenant) as conn:
+                worked = feed(conn, now) > 0 or worked
             worked = process_one(tenant) or worked
         if not worked:
             time.sleep(1)
