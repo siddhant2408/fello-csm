@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DraftPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    fact_ids: list[str] = Field(min_length=0, max_length=3)
+    fact_ids: list[str] = Field(min_length=0, max_length=2)  # matches the prompt and the template fallback
     opening: Literal["check_in", "renewal_planning"]
 
 

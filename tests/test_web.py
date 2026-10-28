@@ -58,3 +58,18 @@ def test_invalid_login_is_generic():
         response = client.post("/login", data={"username": "unknown", "password": "incorrect", "csrf": csrf})
         assert response.status_code == 401
         assert "Invalid credentials" in response.text
+
+
+def test_strangers_failed_logins_do_not_lock_out_the_real_user():
+    from app.db import transaction
+
+    with transaction(None) as conn:
+        for _ in range(12):
+            conn.execute("SELECT * FROM fello_login('demo-t1','wrong-password','203.0.113.9')")
+    with TestClient(app, base_url="https://testserver") as client:
+        assert login(client).status_code == 200
+
+
+def test_malformed_content_length_is_a_client_error():
+    with TestClient(app, base_url="https://testserver") as client:
+        assert client.post("/login", headers={"content-length": "abc"}, content=b"").status_code == 400
