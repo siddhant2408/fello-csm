@@ -187,7 +187,7 @@ def process_one(tenant: str) -> bool:
         log.warning("job_failed tenant=%s job=%s error_type=%s", tenant, job["id"], type(exc).__name__)
         with transaction(tenant) as conn:
             conn.execute(
-                """UPDATE jobs SET status=%s,available_at=now()+interval '5 seconds',lease_until=NULL,last_error=%s
+                """UPDATE jobs SET status=%s,available_at=now()+interval '5 seconds'*power(2,attempts-1),lease_until=NULL,last_error=%s
                           WHERE id=%s AND attempts=%s""",
                 (
                     "failed" if job["attempts"] >= 5 else "pending",

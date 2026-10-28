@@ -61,3 +61,9 @@ def test_unsupported_provider_fact_cannot_enter_draft(monkeypatch):
     result = generate_draft(FACTS)
     assert result["mode"] == "template_provider_failure"
     assert "invented_fact" not in str(result)
+
+
+def test_plan_cannot_cite_more_facts_than_the_prompt_allows():
+    facts = [{"id": f"f{i}", "text": "x", "event_ids": []} for i in range(3)]
+    with pytest.raises(ValueError):
+        validate_plan({"fact_ids": ["f0", "f1", "f2"], "opening": "check_in"}, facts)

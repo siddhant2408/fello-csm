@@ -43,7 +43,10 @@ attempts = defaultdict(list)  # Single web process only. DB independently limits
 @app.middleware("http")
 async def security_headers(request, call_next):
     if request.method == "POST":
-        if int(request.headers.get("content-length", "0")) > 16384:
+        length = request.headers.get("content-length", "0")
+        if not length.isdigit():
+            return JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
+        if int(length) > 16384:
             return JSONResponse({"detail": "Request too large"}, status_code=413)
         # All POSTs also carry CSRF tokens. Reject chunked bodies to keep the cap enforceable.
         if request.headers.get("transfer-encoding"):
@@ -125,7 +128,7 @@ def login(
         raise HTTPException(429, "Too many login attempts")
     attempts[ip].append(now)
     with transaction(None) as conn:
-        user = conn.execute("SELECT * FROM fello_login(%s,%s)", (username, password)).fetchone()
+        user = conn.execute("SELECT * FROM fello_login(%s,%s,%s)", (username, password, ip)).fetchone()
     if not user:
         response = page(request, "login.html", error="Invalid credentials")
         response.status_code = 401

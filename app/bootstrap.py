@@ -68,7 +68,7 @@ def main():
         conn.execute("GRANT SELECT ON replay TO fello_app")
         conn.execute("INSERT INTO replay DEFAULT VALUES ON CONFLICT DO NOTHING")
         conn.execute("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO fello_app")
-        conn.execute("GRANT EXECUTE ON FUNCTION fello_login(text,text) TO fello_app")
+        conn.execute("GRANT EXECUTE ON FUNCTION fello_login(text,text,text) TO fello_app")
         if conn.execute("SELECT count(*) FROM accounts").fetchone()[0] == 0:
             with conn.cursor().copy(
                 "COPY accounts(tenant_id,id,name,csm_id,connected_sources,arr,created_at) FROM STDIN"
