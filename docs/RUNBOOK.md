@@ -1,7 +1,7 @@
 # Operator runbook
 
 ## Scope and credentials
-This Compose project is `fello-worklist`. Do not operate on other Docker projects. `.env` is ignored and permission 0600. Never run `docker compose config` into a shared log: interpolation includes credentials. Normal deployment exposes neither Postgres nor the web service publicly; configure TLS at the reverse proxy first. Provision fresh credentials on the separate Oracle server, not a copy of local credentials.
+This Compose project is `fello-worklist`. Do not operate on other Docker projects. `.env` is ignored and permission 0600. Never run `docker compose config` into a shared log: interpolation includes credentials. Postgres is never exposed. The web service is public only through Caddy (`compose.https.yml`), which terminates TLS. Provision fresh credentials on the separate Oracle server, not a copy of local credentials.
 
 ## Health and failures
 - `docker compose ps -a`: init must exit 0; web, worker and DB must run.
@@ -28,7 +28,7 @@ Configure the key securely in server `.env`, select a structured-output capable 
 - Clone the private repository after token access is fixed; provision fresh `.env`.
 - `docker compose build web && docker compose up -d`.
 - Check init exit status and health; verify worker reacts to a new source event.
-- Put an HTTPS reverse proxy in front of the loopback web port if it is reachable beyond localhost.
+- For public access: set `SITE_ADDRESS` in `.env`, open TCP 80/443 in the cloud security list and the host firewall (persist the host rules), then `docker compose -f compose.yml -f compose.https.yml up -d`. Check `docker logs fello-worklist-caddy-1` for "certificate obtained successfully".
 - Do not expose the test Postgres override or publish database/admin credentials.
 - The demo user picker has no password: anyone who can reach the URL can open any demo tenant. Only synthetic data belongs behind it.
 - Confirm restore: logical Postgres backup plus persisted generated dataset/model artifacts; preserve the deployed Git revision.
@@ -37,4 +37,4 @@ Configure the key securely in server `.env`, select a structured-output capable 
 Check out the previously tested Git commit, rebuild the shared image and recreate web/worker. Schema changes are additive except the removal of password login (`fello_login`, `login_attempts`, `users.password_hash`); rolling the web back past that change needs them recreated and the demo users reseeded. No general migration rollback framework is claimed. Back up the database before future schema changes. Do not use volume deletion as deployment rollback.
 
 ## Outstanding access
-The owner-created private repository is https://github.com/siddhant2408/fello-csm; repository visibility and token push access were verified. Oracle SSH endpoint/user and approved key access are not yet provided. OpenRouter key is not configured. Do not represent remote deployment or live-provider verification as completed.
+The owner-created private repository is https://github.com/siddhant2408/fello-csm; repository visibility and token push access were verified. Deployed on the Oracle VM (`ubuntu@140.245.17.41`, checkout `~/fello-csm`) at https://140-245-17-41.sslip.io. To update: `git pull`, `docker compose build web`, then the HTTPS `up -d` above. OpenRouter key is not configured. Do not represent live-provider verification as completed.
