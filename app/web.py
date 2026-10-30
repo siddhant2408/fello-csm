@@ -1,8 +1,4 @@
-import hmac
 import os
-import secrets
-import time
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,13 +27,13 @@ app = FastAPI(title="Renewal Risk Worklist", lifespan=lifespan, docs_url=None, r
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.environ.get("SESSION_SECRET", "not-configured"),
-    https_only=os.environ.get("COOKIE_SECURE", "true").lower() == "true",
+    # Strict: browsers never send the cookie on cross-site requests, so no separate CSRF token is needed.
+    # Not HTTPS-only: the demo picker has no secret to protect, and it must work over plain HTTP.
     same_site="strict",
     max_age=3600,
 )
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
-attempts = defaultdict(list)  # Single web process only. DB independently limits each username.
 
 
 @app.middleware("http")
@@ -48,7 +44,7 @@ async def security_headers(request, call_next):
             return JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
         if int(length) > 16384:
             return JSONResponse({"detail": "Request too large"}, status_code=413)
-        # All POSTs also carry CSRF tokens. Reject chunked bodies to keep the cap enforceable.
+        # Reject chunked bodies to keep the cap enforceable.
         if request.headers.get("transfer-encoding"):
             return JSONResponse({"detail": "Content-Length required"}, status_code=411)
     response = await call_next(request)
@@ -66,17 +62,6 @@ async def security_headers(request, call_next):
     return response
 
 
-def csrf_token(request):
-    if "csrf" not in request.session:
-        request.session["csrf"] = secrets.token_urlsafe(32)
-    return request.session["csrf"]
-
-
-def verify_csrf(request, token):
-    if not hmac.compare_digest(request.session.get("csrf", ""), token) or not token:
-        raise HTTPException(403, "Invalid CSRF token")
-
-
 def current_user(request):
     user = request.session.get("user")
     if not user:
@@ -89,7 +74,6 @@ def page(request, name, **context):
         request=request,
         name=name,
         context={
-            "csrf": csrf_token(request),
             "user": request.session.get("user"),
             "simulation": clock().strftime("%Y-%m-%d %H:%M UTC")
             if os.environ.get("SIMULATION_AS_OF")
@@ -109,39 +93,27 @@ def health():
 
 @app.get("/login")
 def login_form(request: Request):
-    return page(request, "login.html", error=None)
+    with transaction(None) as conn:
+        users = conn.execute("SELECT username,tenant_id,csm_id FROM users ORDER BY username").fetchall()
+    return page(request, "login.html", users=users)
 
 
 @app.post("/login")
-def login(
-    request: Request,
-    username: str = Form(max_length=100),
-    password: str = Form(max_length=72),
-    csrf: str = Form(max_length=100),
-):
-    verify_csrf(request, csrf)
-    # Do not trust forwarded client headers. A production proxy needs an explicit trusted-proxy setup.
-    ip = request.client.host if request.client else "unknown"
-    now = time.monotonic()
-    attempts[ip] = [t for t in attempts[ip] if t > now - 900]
-    if len(attempts[ip]) >= 30:
-        raise HTTPException(429, "Too many login attempts")
-    attempts[ip].append(now)
+def login(request: Request, username: str = Form(max_length=100)):
+    # Demo identity: pick a seeded user, no password. The tenant still comes only from this server-set session.
     with transaction(None) as conn:
-        user = conn.execute("SELECT * FROM fello_login(%s,%s,%s)", (username, password, ip)).fetchone()
+        user = conn.execute(
+            "SELECT id,tenant_id,csm_id FROM users WHERE username=%s", (username,)
+        ).fetchone()
     if not user:
-        response = page(request, "login.html", error="Invalid credentials")
-        response.status_code = 401
-        return response
+        raise HTTPException(404, "Unknown user")
     request.session.clear()
     request.session["user"] = user
-    csrf_token(request)
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/logout")
-def logout(request: Request, csrf: str = Form(max_length=100)):
-    verify_csrf(request, csrf)
+def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -189,9 +161,8 @@ def detail(request: Request, account_id: str):
 
 
 @app.post("/accounts/{account_id}/draft")
-def draft(request: Request, account_id: str, csrf: str = Form(max_length=100)):
+def draft(request: Request, account_id: str):
     user = current_user(request)
-    verify_csrf(request, csrf)
     with transaction(user["tenant_id"]) as conn:
         details = account_details(conn, user, account_id)
     if not details:
@@ -211,9 +182,8 @@ def draft(request: Request, account_id: str, csrf: str = Form(max_length=100)):
 
 
 @app.post("/accounts/{account_id}/reviewed")
-def reviewed(request: Request, account_id: str, csrf: str = Form(max_length=100)):
+def reviewed(request: Request, account_id: str):
     user = current_user(request)
-    verify_csrf(request, csrf)
     with transaction(user["tenant_id"]) as conn:
         if not owned_account(conn, user, account_id):
             raise HTTPException(404, "Account not found")

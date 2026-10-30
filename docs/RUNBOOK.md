@@ -20,9 +20,6 @@ This Compose project is `fello-worklist`. Do not operate on other Docker project
 ## Onboarding a tenant
 Administrative only; the app role cannot write these tables. As the admin role: insert into `tenants`, then load its accounts, aliases and renewals, and a model (a tenant with no outcomes gets `train_tenant([], [])`, the rules fallback) plus its users. The worker picks the tenant up within a minute and queues its accounts. Without a model its jobs fail visibly with `ValueError`; they are not scored with another tenant's model.
 
-## Login limits
-Ten failures in 15 minutes for one username from one client blocks that pair; successes are not counted. Behind a reverse proxy configure uvicorn's trusted forwarded headers, otherwise every user shares the proxy's address. To clear a block as admin: `DELETE FROM login_attempts WHERE username=... AND client=...`.
-
 ## Live OpenRouter verification
 Configure the key securely in server `.env`, select a structured-output capable model, and recreate web. Open a newly computed snapshot (old cached template drafts are intentionally immutable). Prepare a draft and verify `mode=openrouter_validated_selection`, model usage metadata and citations. Test provider refusal/timeout to labelled template fallback. An API-key placeholder or a successful mock is not a live verification.
 
@@ -31,13 +28,13 @@ Configure the key securely in server `.env`, select a structured-output capable 
 - Clone the private repository after token access is fixed; provision fresh `.env`.
 - `docker compose build web && docker compose up -d`.
 - Check init exit status and health; verify worker reacts to a new source event.
-- Put an HTTPS reverse proxy in front of the loopback web port; leave secure cookies enabled.
+- Put an HTTPS reverse proxy in front of the loopback web port if it is reachable beyond localhost.
 - Do not expose the test Postgres override or publish database/admin credentials.
-- Share demo credentials privately and rotate after evaluation.
+- The demo user picker has no password: anyone who can reach the URL can open any demo tenant. Only synthetic data belongs behind it.
 - Confirm restore: logical Postgres backup plus persisted generated dataset/model artifacts; preserve the deployed Git revision.
 
 ## Rollback
-Check out the previously tested Git commit, rebuild the shared image and recreate web/worker. Schema changes are additive except `fello_login`, which moved from (text,text) to (text,text,text); rolling the web back past that change needs the old function recreated. No general migration rollback framework is claimed. Back up the database before future schema changes. Do not use volume deletion as deployment rollback.
+Check out the previously tested Git commit, rebuild the shared image and recreate web/worker. Schema changes are additive except the removal of password login (`fello_login`, `login_attempts`, `users.password_hash`); rolling the web back past that change needs them recreated and the demo users reseeded. No general migration rollback framework is claimed. Back up the database before future schema changes. Do not use volume deletion as deployment rollback.
 
 ## Outstanding access
 The owner-created private repository is https://github.com/siddhant2408/fello-csm; repository visibility and token push access were verified. Oracle SSH endpoint/user and approved key access are not yet provided. OpenRouter key is not configured. Do not represent remote deployment or live-provider verification as completed.
