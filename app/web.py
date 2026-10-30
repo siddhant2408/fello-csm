@@ -1,8 +1,6 @@
 import hmac
 import os
 import secrets
-import time
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -37,7 +35,6 @@ app.add_middleware(
 )
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
-attempts = defaultdict(list)  # Single web process only. DB independently limits each username.
 
 
 @app.middleware("http")
@@ -109,30 +106,21 @@ def health():
 
 @app.get("/login")
 def login_form(request: Request):
-    return page(request, "login.html", error=None)
+    with transaction(None) as conn:
+        users = conn.execute("SELECT username,tenant_id,csm_id FROM users ORDER BY username").fetchall()
+    return page(request, "login.html", users=users)
 
 
 @app.post("/login")
-def login(
-    request: Request,
-    username: str = Form(max_length=100),
-    password: str = Form(max_length=72),
-    csrf: str = Form(max_length=100),
-):
+def login(request: Request, username: str = Form(max_length=100), csrf: str = Form(max_length=100)):
     verify_csrf(request, csrf)
-    # Do not trust forwarded client headers. A production proxy needs an explicit trusted-proxy setup.
-    ip = request.client.host if request.client else "unknown"
-    now = time.monotonic()
-    attempts[ip] = [t for t in attempts[ip] if t > now - 900]
-    if len(attempts[ip]) >= 30:
-        raise HTTPException(429, "Too many login attempts")
-    attempts[ip].append(now)
+    # Demo identity: pick a seeded user, no password. The tenant still comes only from this server-set session.
     with transaction(None) as conn:
-        user = conn.execute("SELECT * FROM fello_login(%s,%s,%s)", (username, password, ip)).fetchone()
+        user = conn.execute(
+            "SELECT id,tenant_id,csm_id FROM users WHERE username=%s", (username,)
+        ).fetchone()
     if not user:
-        response = page(request, "login.html", error="Invalid credentials")
-        response.status_code = 401
-        return response
+        raise HTTPException(404, "Unknown user")
     request.session.clear()
     request.session["user"] = user
     csrf_token(request)

@@ -25,9 +25,8 @@ def main():
         evaluate(dataset)
     models = json.loads(models_path.read_text())
     password = os.environ["APP_DB_PASSWORD"]
-    demo_password = os.environ["DEMO_PASSWORD"]
-    if len(password) < 20 or len(demo_password) < 16:
-        raise ValueError("Provision strong random database/demo credentials")
+    if len(password) < 20:
+        raise ValueError("Provision a strong random database credential")
     with psycopg.connect(os.environ["ADMIN_DATABASE_URL"]) as conn:
         if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='fello_app'").fetchone():
             conn.execute(
@@ -68,7 +67,7 @@ def main():
         conn.execute("GRANT SELECT ON replay TO fello_app")
         conn.execute("INSERT INTO replay DEFAULT VALUES ON CONFLICT DO NOTHING")
         conn.execute("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO fello_app")
-        conn.execute("GRANT EXECUTE ON FUNCTION fello_login(text,text,text) TO fello_app")
+        conn.execute("GRANT SELECT ON users TO fello_app")
         if conn.execute("SELECT count(*) FROM accounts").fetchone()[0] == 0:
             with conn.cursor().copy(
                 "COPY accounts(tenant_id,id,name,csm_id,connected_sources,arr,created_at) FROM STDIN"
@@ -151,9 +150,8 @@ def main():
                 "SELECT csm_id FROM accounts WHERE tenant_id=%s ORDER BY id LIMIT 1", (tenant,)
             ).fetchone()[0]
             conn.execute(
-                """INSERT INTO users(username,id,tenant_id,csm_id,password_hash)
-                VALUES(%s,%s,%s,%s,crypt(%s,gen_salt('bf',12))) ON CONFLICT DO NOTHING""",
-                (f"demo-{tenant}", f"user-{tenant}", tenant, csm, demo_password),
+                "INSERT INTO users(username,id,tenant_id,csm_id) VALUES(%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (f"demo-{tenant}", f"user-{tenant}", tenant, csm),
             )
         # Counts are verified before committing the seed transaction.
         counts = {

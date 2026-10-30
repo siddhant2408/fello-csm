@@ -15,7 +15,7 @@ curl --fail http://127.0.0.1:8080/health
 
 The initializer generates data, fits/evaluates the models, and seeds Postgres. It exits successfully before web/worker start. On a repeated start the existing seed is retained. Do not use `down --volumes` unless intentionally discarding this demo's generated database.
 
-Open through an HTTPS reverse proxy or SSH tunnel. Users are `demo-t1` through `demo-t4`; retrieve `DEMO_PASSWORD` privately from `.env`. It is never printed by provisioning and is hashed with bcrypt in Postgres. The same password is a demo convenience, not production identity management. Secure cookies default on; for strictly local HTTP testing only, set `COOKIE_SECURE=false` and recreate web. Do not expose that configuration publicly.
+Open through an HTTPS reverse proxy or SSH tunnel. The first page lists the demo users (one CSM per tenant, `demo-t1` through `demo-t4`); click one to open their worklist, and "Switch user" to change tenant. There are no passwords: this is a synthetic demo, not identity management. The chosen user is stored in a signed session cookie, and every query takes the tenant from that session, never from the request. Secure cookies default on; for strictly local HTTP testing only, set `COOKIE_SECURE=false` and recreate web. Do not expose that configuration publicly.
 
 The web listener binds to **127.0.0.1:8080**. The normal Compose file publishes no database port. Neither server access nor a public URL is assumed to exist.
 
@@ -27,7 +27,7 @@ Bootstrap loads only events already received at the start. The other ~33k delive
 `SIMULATION_SPEED=0` freezes the clock at the start (tests use this). Restarting the replay from the beginning means reseeding: `docker compose down --volumes` discards this demo database. For a wall-clock installation set `SIMULATION_AS_OF=` and ingest real-time data; the fixtures do not become current customer data.
 
 ## What to try
-1. Sign in and open an account from the worklist.
+1. Pick a demo user and open an account from the worklist.
 2. Inspect feature values, model contributions, source-event clocks and immutable snapshot identifiers.
 3. Prepare a draft. With no API key, the UI explicitly labels it `template_no_key`; it never pretends a model call occurred.
 4. Leave it running: the banner clock advances and accounts gain new snapshots as held-back events arrive. To inject one yourself while the worker is running:
@@ -86,7 +86,7 @@ uv run python -m scripts.smoke_worker
 uv run pip-audit
 ```
 
-Tests cover both clocks, deterministic generation, terminal churn, model fallback, tenant read/write isolation using the actual app role, missing tenant context, forged identity, duplicate processing, job retry, login, CSRF, per-CSM authorization and constrained draft validation. The smoke test verifies the **running separate worker**, not a mocked function call. It requires this demo's seeded account/source alias.
+Tests cover both clocks, deterministic generation, terminal churn, model fallback, tenant read/write isolation using the actual app role, missing tenant context, forged identity, duplicate processing, job retry, user switching, CSRF, per-CSM authorization and constrained draft validation. The smoke test verifies the **running separate worker**, not a mocked function call. It requires this demo's seeded account/source alias.
 
 ## Deliberately skipped
 Real Salesforce/Gmail/Zendesk/Stripe connectors; enterprise SSO and user provisioning; customer email sending; free-text LLM prose; embedding retrieval; sophisticated identity resolution; automatic retraining/promotion; causal intervention evaluation; action/cooldown tracking; multi-region HA; cold-tier export and production retention enforcement. Source adapters are represented by canonical synthetic records, not purported working SaaS integrations.
@@ -96,7 +96,7 @@ Real Salesforce/Gmail/Zendesk/Stripe connectors; enterprise SSO and user provisi
 2. **Connections and reconciliation:** each claimed job uses short-lived connections; daily reconciliation touches all accounts. Add bounded connection pooling, batched claims, incremental dirty-account reconciliation and backlog/age alarms before adding a broker.
 3. **Retention and audit cost:** event and snapshot ledgers grow indefinitely in this demo. Partition by tenant/time, retain a hot operational window, export historical evidence to low-cost object storage with queryable manifests and tested restore. Never discard evidence still referenced by displayed scores without a retrieval path.
 4. **Serving paths:** tenant/account/time indexes are present, but full-portfolio snapshot lookup needs measured EXPLAIN plans and potentially a current-state projection. Preserve immutable history behind that projection.
-5. **Identity/security/availability:** seeded users, DB failure limits per username and client (so a stranger cannot lock a user out; behind a proxy the client address must come from trusted forwarded headers) and a single-process IP limiter are not enterprise IAM. Replace with SSO, revocable server-side sessions, shared rate limits, per-app roles and managed secrets; separate DB, backups and HTTPS edge.
+5. **Identity/security/availability:** a password-free demo user picker is deliberately not authentication; anyone with the URL can open any demo tenant. Isolation is still enforced below it (session-carried tenant, RLS), so real login only has to replace how the session is set: SSO, revocable server-side sessions, rate limits, per-app roles and managed secrets; separate DB, backups and HTTPS edge.
 6. **LLM concurrency/cost:** requests are bounded, cached per snapshot, and timeout to labelled templates. Concurrent uncached requests can still duplicate provider calls; add a durable draft job/claim and tenant budgets before increasing concurrency. No token-saving claim is made without measurement.
 
 ## Release status

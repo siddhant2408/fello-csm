@@ -13,9 +13,7 @@ def login(client, tenant="t1"):
     import re
 
     csrf = re.search('name="csrf" value="([^"]+)"', response.text).group(1)
-    return client.post(
-        "/login", data={"username": f"demo-{tenant}", "password": os.environ["DEMO_PASSWORD"], "csrf": csrf}
-    )
+    return client.post("/login", data={"username": f"demo-{tenant}", "csrf": csrf})
 
 
 def test_login_worklist_cross_tenant_and_csm_boundary():
@@ -50,24 +48,21 @@ def test_state_change_requires_csrf():
         assert response.status_code == 403
 
 
-def test_invalid_login_is_generic():
+def test_switching_user_switches_tenant():
     with TestClient(app, base_url="https://testserver") as client:
-        import re
+        login(client, "t1")
+        assert client.get("/accounts/a00001").status_code == 200
+        login(client, "t2")
+        assert client.get("/accounts/a00001").status_code == 404
 
+
+def test_unknown_user_and_missing_csrf_are_rejected():
+    import re
+
+    with TestClient(app, base_url="https://testserver") as client:
         csrf = re.search('name="csrf" value="([^"]+)"', client.get("/login").text).group(1)
-        response = client.post("/login", data={"username": "unknown", "password": "incorrect", "csrf": csrf})
-        assert response.status_code == 401
-        assert "Invalid credentials" in response.text
-
-
-def test_strangers_failed_logins_do_not_lock_out_the_real_user():
-    from app.db import transaction
-
-    with transaction(None) as conn:
-        for _ in range(12):
-            conn.execute("SELECT * FROM fello_login('demo-t1','wrong-password','203.0.113.9')")
-    with TestClient(app, base_url="https://testserver") as client:
-        assert login(client).status_code == 200
+        assert client.post("/login", data={"username": "unknown", "csrf": csrf}).status_code == 404
+        assert client.post("/login", data={"username": "demo-t1", "csrf": "invalid"}).status_code == 403
 
 
 def test_malformed_content_length_is_a_client_error():

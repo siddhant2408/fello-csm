@@ -56,30 +56,11 @@ CREATE TABLE IF NOT EXISTS reviews (
  csm_id text NOT NULL, reviewed_at timestamptz NOT NULL, PRIMARY KEY(tenant_id,id),
  FOREIGN KEY(tenant_id,account_id) REFERENCES accounts);
 CREATE INDEX IF NOT EXISTS reviews_recent ON reviews(tenant_id,account_id,reviewed_at);
+-- Demo identities, picked from a list (no passwords). The session, not the request, carries the tenant.
 CREATE TABLE IF NOT EXISTS users (
- username text PRIMARY KEY, id text NOT NULL UNIQUE, tenant_id text NOT NULL, csm_id text NOT NULL,
- password_hash text NOT NULL);
-CREATE TABLE IF NOT EXISTS login_attempts (username text NOT NULL, attempted_at timestamptz DEFAULT now());
-ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS client text NOT NULL DEFAULT '';
-DROP INDEX IF EXISTS attempts_lookup;
-CREATE INDEX IF NOT EXISTS attempts_by_client ON login_attempts(username,client,attempted_at);
+ username text PRIMARY KEY, id text NOT NULL UNIQUE, tenant_id text NOT NULL, csm_id text NOT NULL);
+ALTER TABLE users DROP COLUMN IF EXISTS password_hash;
 DROP FUNCTION IF EXISTS public.fello_login(text,text);
--- Failures are limited per username AND client, so a stranger's guesses cannot lock a real user out.
--- Behind a reverse proxy the client must be the trusted forwarded address, or all users share one bucket.
-CREATE OR REPLACE FUNCTION public.fello_login(login_name text, login_password text, login_client text)
-RETURNS TABLE(id text,tenant_id text,csm_id text) LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog, public AS $$
-BEGIN
- PERFORM pg_advisory_xact_lock(hashtextextended(login_name || '|' || login_client,1));
- IF (SELECT count(*) FROM public.login_attempts WHERE username=login_name AND client=login_client
-     AND attempted_at>now()-interval '15 minutes') >= 10 THEN
-   RETURN;
- END IF;
- RETURN QUERY SELECT u.id,u.tenant_id,u.csm_id FROM public.users u
- WHERE u.username=login_name AND u.password_hash=public.crypt(login_password,u.password_hash);
- IF NOT FOUND THEN
-   INSERT INTO public.login_attempts(username,client) VALUES(login_name,login_client);
- END IF;
-END $$;
-REVOKE ALL ON FUNCTION public.fello_login(text,text,text) FROM PUBLIC;
+DROP FUNCTION IF EXISTS public.fello_login(text,text,text);
+DROP TABLE IF EXISTS login_attempts;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
