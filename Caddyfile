@@ -1,0 +1,4 @@
+# HTTPS in front of web. Caddy obtains and renews a Let's Encrypt certificate for SITE_ADDRESS.
+{$SITE_ADDRESS} {
+	reverse_proxy web:8080
+}

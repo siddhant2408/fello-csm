@@ -1,0 +1,18 @@
+# Public HTTPS deployment: docker compose -f compose.yml -f compose.https.yml up -d
+# Needs SITE_ADDRESS in .env (a DNS name pointing here) and TCP 80/443 open to the internet.
+services:
+  db:
+    restart: unless-stopped
+  caddy:
+    image: caddy:2.10
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS in .env}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [web]
+    restart: unless-stopped
+    mem_limit: 128m
+volumes:
+  caddy-data:

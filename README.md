@@ -2,6 +2,8 @@
 
 A deliberately narrow Fello take-home: help a CSM decide which accounts to contact, with inspectable evidence. **Synthetic demonstration, not a validated production churn predictor. No email is sent.**
 
+**Live:** https://140-245-17-41.sslip.io (Oracle Cloud free-tier VM, HTTPS via Caddy and Let's Encrypt).
+
 ## Start
 Requires Docker with Compose and Python 3.11+; allow several GB of free disk for image construction.
 
@@ -15,9 +17,18 @@ curl --fail http://127.0.0.1:8080/health
 
 The initializer generates data, fits/evaluates the models, and seeds Postgres. It exits successfully before web/worker start. On a repeated start the existing seed is retained. Do not use `down --volumes` unless intentionally discarding this demo's generated database.
 
-Open through an HTTPS reverse proxy or SSH tunnel. The first page lists the demo users (one CSM per tenant, `demo-t1` through `demo-t4`); click one to open their worklist, and "Switch user" to change tenant. There are no passwords: this is a synthetic demo, not identity management. The chosen user is stored in a signed session cookie, and every query takes the tenant from that session, never from the request. The cookie is `SameSite=strict`, so browsers never send it on a cross-site request; that is the cross-site form protection, with no separate CSRF token. It is not HTTPS-only, so plain HTTP works; with no password there is no secret for it to protect.
+Open http://127.0.0.1:8080. The first page lists the demo users (one CSM per tenant, `demo-t1` through `demo-t4`); click one to open their worklist, and "Switch user" to change tenant. There are no passwords: this is a synthetic demo, not identity management. The chosen user is stored in a signed session cookie, and every query takes the tenant from that session, never from the request. The cookie is `SameSite=strict`, so browsers never send it on a cross-site request; that is the cross-site form protection, with no separate CSRF token. It is not HTTPS-only, so plain HTTP works; with no password there is no secret for it to protect.
 
-The web listener binds to **127.0.0.1:8080**. The normal Compose file publishes no database port. Neither server access nor a public URL is assumed to exist.
+The web listener binds to **127.0.0.1:8080**. The normal Compose file publishes no database port.
+
+### Public HTTPS deployment
+On a server with a public IP, set `SITE_ADDRESS` in `.env` to a DNS name pointing at it (with no domain, `<ip-with-dashes>.sslip.io` works), open TCP 80 and 443 in the cloud firewall and the host firewall, then:
+
+```sh
+docker compose -f compose.yml -f compose.https.yml up -d
+```
+
+Caddy gets the certificate on first start (port 80 is needed for that) and renews it automatically. The override also restarts Postgres on reboot.
 
 ## The replay clock moves on its own
 The demo replays the synthetic world from `SIMULATION_AS_OF=2026-06-01T12:00:00+00:00` at `SIMULATION_SPEED=20` (one simulated day per 72 real minutes, so the replay lasts about 4.5 days), stopping at `SIMULATION_END=2026-09-01`. The current replay time is shown in the UI banner and `/health`. Web, worker and restarts share one clock, anchored to the wall time the database was first seeded (`replay` table).
@@ -101,4 +112,4 @@ Real Salesforce/Gmail/Zendesk/Stripe connectors; enterprise SSO and user provisi
 6. **LLM concurrency/cost:** requests are bounded, cached per snapshot, and timeout to labelled templates. Concurrent uncached requests can still duplicate provider calls; add a durable draft job/claim and tenant budgets before increasing concurrency. No token-saving claim is made without measurement.
 
 ## Release status
-Local Docker image, web, worker and Postgres have run successfully. Desktop/mobile browser flows and autonomous ingestion were exercised. Remote Oracle deployment and live OpenRouter verification remain access-gated. The private source repository is https://github.com/siddhant2408/fello-csm. The final Loom must be recorded by the owner after code review. Read `docs/RUNBOOK.md` and `docs/WALKTHROUGH.md` before presenting.
+Local Docker image, web, worker and Postgres have run successfully. Desktop/mobile browser flows and autonomous ingestion were exercised. Deployed on the Oracle VM at https://140-245-17-41.sslip.io (Let's Encrypt certificate, worker and replay clock running unattended). Live OpenRouter verification is still pending: no key is configured, so drafts use the labelled template. The private source repository is https://github.com/siddhant2408/fello-csm. The final Loom must be recorded by the owner after code review. Read `docs/RUNBOOK.md` and `docs/WALKTHROUGH.md` before presenting.
