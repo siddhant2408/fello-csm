@@ -15,7 +15,7 @@ curl --fail http://127.0.0.1:8080/health
 
 The initializer generates data, fits/evaluates the models, and seeds Postgres. It exits successfully before web/worker start. On a repeated start the existing seed is retained. Do not use `down --volumes` unless intentionally discarding this demo's generated database.
 
-Open through an HTTPS reverse proxy or SSH tunnel. The first page lists the demo users (one CSM per tenant, `demo-t1` through `demo-t4`); click one to open their worklist, and "Switch user" to change tenant. There are no passwords: this is a synthetic demo, not identity management. The chosen user is stored in a signed session cookie, and every query takes the tenant from that session, never from the request. Secure cookies default on; for strictly local HTTP testing only, set `COOKIE_SECURE=false` and recreate web. Do not expose that configuration publicly.
+Open through an HTTPS reverse proxy or SSH tunnel. The first page lists the demo users (one CSM per tenant, `demo-t1` through `demo-t4`); click one to open their worklist, and "Switch user" to change tenant. There are no passwords: this is a synthetic demo, not identity management. The chosen user is stored in a signed session cookie, and every query takes the tenant from that session, never from the request. The cookie is `SameSite=strict`, so browsers never send it on a cross-site request; that is the cross-site form protection, with no separate CSRF token. It is not HTTPS-only, so plain HTTP works; with no password there is no secret for it to protect.
 
 The web listener binds to **127.0.0.1:8080**. The normal Compose file publishes no database port. Neither server access nor a public URL is assumed to exist.
 
@@ -87,7 +87,7 @@ ftest down --volumes               # discards only the test database
 uv run pip-audit
 ```
 
-Tests cover both clocks, deterministic generation, terminal churn, model fallback, tenant read/write isolation using the actual app role, missing tenant context, forged identity, duplicate processing, job retry, user switching, CSRF, per-CSM authorization and constrained draft validation. The smoke test verifies the **running separate worker**, not a mocked function call. It requires this demo's seeded account/source alias.
+Tests cover both clocks, deterministic generation, terminal churn, model fallback, tenant read/write isolation using the actual app role, missing tenant context, forged identity, duplicate processing, job retry, user switching, SameSite-strict session cookie, per-CSM authorization and constrained draft validation. The smoke test verifies the **running separate worker**, not a mocked function call. It requires this demo's seeded account/source alias.
 
 ## Deliberately skipped
 Real Salesforce/Gmail/Zendesk/Stripe connectors; enterprise SSO and user provisioning; customer email sending; free-text LLM prose; embedding retrieval; sophisticated identity resolution; automatic retraining/promotion; causal intervention evaluation; action/cooldown tracking; multi-region HA; cold-tier export and production retention enforcement. Source adapters are represented by canonical synthetic records, not purported working SaaS integrations.

@@ -20,7 +20,6 @@ elif sys.argv[1] == "test":
 elif sys.argv[1] == "drain":
     command = [sys.executable, "-m", "app.cli", "drain"]
 elif sys.argv[1] == "web":
-    env["COOKIE_SECURE"] = "false"  # local HTTP only, not deployment default
     command = [sys.executable, "-m", "uvicorn", "app.web:app", "--host", "127.0.0.1", "--port", "8080"]
 else:
     raise SystemExit("Use bootstrap, test, drain, web")

@@ -28,7 +28,7 @@ Configure the key securely in server `.env`, select a structured-output capable 
 - Clone the private repository after token access is fixed; provision fresh `.env`.
 - `docker compose build web && docker compose up -d`.
 - Check init exit status and health; verify worker reacts to a new source event.
-- Put an HTTPS reverse proxy in front of the loopback web port; leave secure cookies enabled.
+- Put an HTTPS reverse proxy in front of the loopback web port if it is reachable beyond localhost.
 - Do not expose the test Postgres override or publish database/admin credentials.
 - The demo user picker has no password: anyone who can reach the URL can open any demo tenant. Only synthetic data belongs behind it.
 - Confirm restore: logical Postgres backup plus persisted generated dataset/model artifacts; preserve the deployed Git revision.
