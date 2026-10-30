@@ -1,115 +1,99 @@
 # Renewal Risk Worklist
 
-A deliberately narrow Fello take-home: help a CSM decide which accounts to contact, with inspectable evidence. **Synthetic demonstration, not a validated production churn predictor. No email is sent.**
+A Monday worklist for Customer Success Managers: the accounts most likely not to renew, ranked within each CSM's weekly capacity, with the evidence behind every score. It drafts outreach for a human to edit and never emails a customer.
 
-**Live:** https://140-245-17-41.sslip.io (Oracle Cloud free-tier VM, HTTPS via Caddy and Let's Encrypt).
+All data is synthetic. This is a demonstration, not a validated churn predictor.
 
-## Start
-Requires Docker with Compose and Python 3.11+; allow several GB of free disk for image construction.
+## Run it
 
-```sh
-python3 scripts/provision.py        # creates ignored .env, mode 0600; refuses overwriting
-# Optionally configure OPENROUTER_API_KEY and OPENROUTER_MODEL in .env securely.
-docker compose build web           # one shared image for init, web and worker
-docker compose up -d
-curl --fail http://127.0.0.1:8080/health
-```
-
-The initializer generates data, fits/evaluates the models, and seeds Postgres. It exits successfully before web/worker start. On a repeated start the existing seed is retained. Do not use `down --volumes` unless intentionally discarding this demo's generated database.
-
-Open http://127.0.0.1:8080. The first page lists the demo users (one CSM per tenant, `demo-t1` through `demo-t4`); click one to open their worklist, and "Switch user" to change tenant. There are no passwords: this is a synthetic demo, not identity management. The chosen user is stored in a signed session cookie, and every query takes the tenant from that session, never from the request. The cookie is `SameSite=strict`, so browsers never send it on a cross-site request; that is the cross-site form protection, with no separate CSRF token. It is not HTTPS-only, so plain HTTP works; with no password there is no secret for it to protect.
-
-The web listener binds to **127.0.0.1:8080**. The normal Compose file publishes no database port.
-
-### Public HTTPS deployment
-On a server with a public IP, set `SITE_ADDRESS` in `.env` to a DNS name pointing at it (with no domain, `<ip-with-dashes>.sslip.io` works), open TCP 80 and 443 in the cloud firewall and the host firewall, then:
+Needs Docker with Compose and Python 3.11+.
 
 ```sh
-docker compose -f compose.yml -f compose.https.yml up -d
+python3 scripts/provision.py     # writes .env with fresh secrets
+docker compose build web
+docker compose up -d             # generates data, trains models, seeds Postgres, starts web + worker
 ```
 
-Caddy gets the certificate on first start (port 80 is needed for that) and renews it automatically. The override also restarts Postgres on reboot.
+Open http://127.0.0.1:8080 and pick a demo user (one CSM per tenant). Optional: set `OPENROUTER_API_KEY` in `.env` for LLM-assisted drafts; without it, drafts use a clearly labelled template.
 
-## The replay clock moves on its own
-The demo replays the synthetic world from `SIMULATION_AS_OF=2026-06-01T12:00:00+00:00` at `SIMULATION_SPEED=20` (one simulated day per 72 real minutes, so the replay lasts about 4.5 days), stopping at `SIMULATION_END=2026-09-01`. The current replay time is shown in the UI banner and `/health`. Web, worker and restarts share one clock, anchored to the wall time the database was first seeded (`replay` table).
-
-Bootstrap loads only events already received at the start. The other ~33k deliveries wait in `inbox`; the worker hands each one to the normal `ingest_event` path once the clock passes its `received_at`, which queues a rescore. Every simulated midnight the worker also rescores all accounts. So with no one touching it, late and new events arrive, snapshots are written and the worklist reorders. Throughput measured locally: ~40 jobs/s, so a day's 5,000-account rescore takes about 2 minutes. Raise the speed for a short live demo (96 = a day per 15 minutes).
-
-`SIMULATION_SPEED=0` freezes the clock at the start (tests use this). Restarting the replay from the beginning means reseeding: `docker compose down --volumes` discards this demo database. For a wall-clock installation set `SIMULATION_AS_OF=` and ingest real-time data; the fixtures do not become current customer data.
-
-## What to try
-1. Pick a demo user and open an account from the worklist.
-2. Inspect feature values, model contributions, source-event clocks and immutable snapshot identifiers.
-3. Prepare a draft. With no API key, the UI explicitly labels it `template_no_key`; it never pretends a model call occurred.
-4. Leave it running: the banner clock advances and accounts gain new snapshots as held-back events arrive. To inject one yourself while the worker is running:
+The system runs on its own. A replay clock starts at 1 June 2026 and moves one simulated day every 72 minutes: about 33k late deliveries arrive as the clock reaches them, and every account is rescored each simulated midnight. To push an event in by hand:
 
 ```sh
 docker compose exec worker python -m app.cli event --tenant t1 --account a00120 --source stripe --value 1
-docker compose exec worker python -m app.cli status --tenant t1
 ```
 
-The event transaction queues the account. The separate worker processes it without a manual scoring command. Refresh the account and inspect its new snapshot. Repeat the exact source event ID through the ingestion function to test deduplication; the CLI intentionally creates a new ID on each invocation.
+## How it works
 
-## Decisions and tradeoffs
-- **Worklist, not traffic-light dashboard:** capacity is 10 account reviews per CSM per week, within 60–180 days of renewal; a reviewed account sits out 28 days (`app/policy.py`). Accounts with enough data are ranked by priority; insufficient-data cases sit in a separate needs-data lane by renewal date, visibly labelled unknown rather than green. The 10 is a placeholder: the real number of weekly slots for risk reviews is a question for the business (see evaluation below). No unsupported intervention recommendation is claimed.
-- **Canonical Postgres model:** tenant-scoped accounts, source aliases, renewals, immutable source events, models, snapshots, jobs and drafts. Unknown aliases are quarantined rather than fuzzy-matched. Customer organisations live in a `tenants` registry that the worker rereads every minute, so onboarding is administrative data, not a deploy: register the tenant, load its accounts/aliases/renewals, and give it a model (with no outcomes yet, `train_tenant([], [])` yields the rules fallback). Until a model exists its jobs fail visibly rather than scoring with another tenant's model.
-- **Two event clocks:** occurred time and received time must both be at/before scoring time. Model training, calibration and final test are chronological; final test scoring begins after the model's release cutoff.
-- **Tenant-local logistic regression:** standardized training, plain JSON inference coefficients and separate logistic calibration. Small tenant gets an explicitly uncalibrated rule-based priority. Historical outcome labels are not loaded into the runtime database.
-- **Traceability rather than invented explanations:** all displayed computations are stored. Contributions are calibrated log-odds associations, not causal attribution or probabilities that add up.
-- **Postgres queue:** atomic event+job insertion, SKIP LOCKED claims, leases, attempt fencing, retry backoff, terminal failures and daily reconciliation. At-least-once execution with idempotent outputs, not a claim of exactly-once execution.
-- **Bounded LLM:** OpenRouter can select known fact IDs and one of two openings. Python validates references and renders fixed factual sentences. No raw customer messages, arbitrary SQL, tools, email addresses, account names or cross-tenant data enter the request. This is intentionally not an open-ended agent.
-- **Least-privileged runtime:** app role is neither owner, superuser nor BYPASSRLS. No-context reads fail closed. Role grants prevent modification of event/snapshot/model artifacts. Only the initializer gets administrative credentials. Worker does not receive the OpenRouter key or session secret.
+1. **Source ledger.** Events from five sources (Salesforce, Gmail metadata, Zendesk, product usage, Stripe) are mapped to one account and stored with two timestamps: when it happened and when we received it.
+2. **Durable jobs.** Each event and the job to rescore its account are written in one transaction. A worker claims jobs with leases and retries failures with backoff.
+3. **Immutable snapshots.** Each score is stored with its inputs, model version and the exact source events it used.
+4. **Worklist.** The web app only reads stored snapshots. It never computes a score.
 
-## Data realism and honest evaluation
-Seed 42 produces **5,000 accounts, 242,083 unique events (1,902 with unresolvable aliases, quarantined) and 11,201 renewal episodes (2,660 non-renewals)**. Four tenants have 2,000 / 1,700 / 1,270 / 30 accounts. Missing source connections, sparse observations, unresolved aliases, delayed arrivals and shuffled input are explicit. Contract history stops after non-renewal. Product events are aggregate usage samples, Zendesk values are urgent-support counts, Stripe values indicate failed payments, and Gmail is metadata only.
+## What I decided, and why
 
-Outcomes depend probabilistically on latent product fit, commercial pressure and shocks; observed features are noisy proxies, not the outcome formula. Events are sampled from eligible histories without replacement. This is still an invented world with simplified business dynamics.
+- **A worklist, not a red/yellow/green dashboard.** The problem is who a CSM calls this week, not what they look at. Up to 10 accounts per CSM, renewing in 60–180 days; a reviewed account leaves the list for 28 days.
+- **The system drafts; the CSM sends.** An automated email to an unhappy customer can speed up churn, and false positives annoy healthy ones. There is no email path at all.
+- **Unknown is not green.** Accounts with too little data go to a separate needs-data lane, ordered by renewal date, never ranked by an imputed score. In the backtest they churn as often as ranked accounts.
+- **A fitted model per tenant, measured honestly.** Calibrated logistic regression, trained on 2024, calibrated on 2025, tested on 2026, and compared with a rules baseline, ARR order and random order. A tenant with too few outcomes gets the rules baseline, labelled as such. No cross-tenant training.
+- **Two clocks.** A score only uses events that had both happened and arrived by scoring time, so late data can't leak backwards.
+- **Postgres as the queue.** `SKIP LOCKED` claims, leases, fencing and capped retries. Execution is at-least-once; snapshots are content-hashed, so retries and duplicates don't create extra scores. No message broker needed at this size.
+- **Isolation in the database.** Every table is tenant-scoped with row-level security, and the app connects as a role that can't bypass it. The tenant comes only from the server-set session, never from the request.
+- **A bounded LLM.** The model may only pick from known facts and fixed openings; code writes the sentences and validates citations. No raw messages, names, emails or other tenants' data go into the request.
+- **Everything shown is stored.** Any number on screen traces to a snapshot, its model version and its source events. Model contributions are shown as associations, not causes.
+- **Demo login on purpose.** The first page is a user picker with no passwords. Isolation sits below it, so real login only changes how the session is set.
 
-```sh
-uv sync --locked
-uv run python -m app.synthetic
-OPENBLAS_NUM_THREADS=1 uv run python -m app.evaluate
-```
+## The data
 
-`data/evaluation.json` is measured output: 2024 outcomes train, 2025 calibrate, 2026 tests. Test predictions occur on/after 2026-01-08. The replay walks each CSM's weeks in order with the product's cooldown and compares the model, the rules baseline, ARR order and 20 random orders at 3, 5 and 10 reviews a week. Touch precision counts every weekly review; catch rate counts distinct renewal episodes.
+Seed 42 generates 5,000 accounts across four tenants, 242,083 events and 11,201 renewals (2,660 not renewed). A hidden health state drives noisy signals in each source, and outcomes are drawn from it, so the model has something real but imperfect to find. The mess is deliberate: disconnected sources, sparse histories, late and out-of-order arrivals, duplicates, and 1,902 events with unknown aliases, which are quarantined rather than guessed. Field definitions are in `docs/DATA_DICTIONARY.md`.
 
-| Tenants t1 / t2 / t3 | Model | Rules | ARR |
+## Results
+
+Replaying each CSM's weeks in 2026 with the real cooldown (`data/evaluation.json`):
+
+| Tenants 1 / 2 / 3 | Model | Rules | ARR order |
 |---|---|---|---|
 | AUC | 0.69 / 0.70 / 0.72 | 0.61 / 0.62 / 0.62 | 0.51 / 0.48 / 0.57 |
-| Touch-precision lift over random, 3/week | 1.29 / 1.30 / 1.33 | 1.17 / 1.18 / 1.14 | 1.03 / 0.98 / 1.11 |
-| Same, 10/week | 1.01 / 1.01 / 1.00 | 1.00 / 1.01 / 1.00 | 1.01 / 1.00 / 1.01 |
+| Useful-call lift over random, 3 reviews a week | 1.29 / 1.30 / 1.33 | 1.17 / 1.18 / 1.14 | 1.03 / 0.98 / 1.11 |
+| Same, 10 reviews a week | 1.01 / 1.01 / 1.00 | 1.00 / 1.01 / 1.00 | 1.01 / 1.00 / 1.01 |
 
-**Capacity 10 does not bind in this world.** A CSM has a median of 16–18 accounts in the ranked lane and each sits out four weeks after review, so about 4–5 reviews a week cover everyone; with 10 slots every ordering reaches every eligible account within a month and the methods converge. Ranking only matters below that: at 3 reviews a week roughly 30% more of the model's calls land on accounts that really churn. That is precision per call, not more saves: at 3/week the model reaches about as many distinct churned renewals as random or rules (t1 161 vs 167 rules of 183), just with fewer wasted calls. Whether ranking is worth having therefore depends on how many weekly slots CSMs actually spend on risk reviews, which this data cannot answer.
+- **The model helps when calls are scarce.** At 3 reviews a week about 30% more of its calls land on accounts that really churn.
+- **That is precision, not more saves.** It reaches about as many churned renewals as the rules (tenant 1: 161 vs 167 of 183).
+- **At 10 a week, every ordering converges.** A CSM has 16–18 eligible accounts and each sits out four weeks, so 10 slots cover everyone regardless of order.
+- **So the deciding question is for the business:** how many calls a week do CSMs really spend on risk reviews?
 
-Rows in the needs-data lane churn at the base rate, and some churned renewals never reach the ranked lane. The small tenant (t4) uses the rules fallback and has 2 churned renewals in the test year, too few for any metric to mean anything. There is no claimed real retention uplift, causal benefit or statistically significant win.
+The smallest tenant has too few outcomes to measure. None of this is evidence of real retention uplift.
+
+## Deliberately skipped
+
+- Real Salesforce, Gmail, Zendesk and Stripe connectors (sources are canonical synthetic records)
+- SSO, user provisioning and real authentication
+- Sending any customer email
+- Free-text LLM writing and embedding retrieval
+- Fuzzy identity matching across sources
+- Automatic retraining and model promotion
+- Measuring whether outreach actually changes outcomes
+- High availability, backups and data retention policy
+
+## What breaks first at 10×
+
+1. **Data generation and training run in memory.** Stream records to partitioned storage and train in batches.
+2. **Connections and the daily rescore.** Every job opens its own connections, and the daily pass touches every account. Add connection pooling, batched claims and rescoring only accounts that changed.
+3. **The ledgers only grow.** Partition events and snapshots by tenant and time, and move old evidence to cheap storage while keeping it retrievable for any score still on screen.
+4. **Portfolio reads.** Finding the latest snapshot per account will need a current-state table in front of the immutable history.
+5. **Identity.** Replace the demo picker with SSO and revocable sessions.
+6. **LLM calls.** Two uncached clicks at once can both call the provider. Add a draft job with a claim, and per-tenant budgets.
 
 ## Tests
-Integration tests write reviews, drafts and job claims, and the claim/retry tests need no competing worker. So run them in their own Compose project (`-p fello-test`), never against the demo database. The test override binds that Postgres only to loopback (port 55432). The demo stack can keep running.
+
+36 tests. The database ones run against real Postgres as the app's own role, not as an owner. They cover both clocks, cross-tenant reads and writes, missing tenant context, forged identity, duplicates, retries, per-CSM access and draft validation. A smoke test checks the running worker picks up a new event on its own.
 
 ```sh
 alias ftest='docker compose -p fello-test -f compose.yml -f compose.test.yml'
 ftest up -d --wait db
 uv run python scripts/local.py bootstrap
 uv run python scripts/local.py test -q
-uv run ruff check app tests scripts
-ftest up -d --no-deps worker       # smoke test needs a worker on the test database
-uv run python -m scripts.smoke_worker
-ftest down --volumes               # discards only the test database
-uv run pip-audit
+ftest up -d --no-deps worker && uv run python -m scripts.smoke_worker
+ftest down --volumes
 ```
 
-Tests cover both clocks, deterministic generation, terminal churn, model fallback, tenant read/write isolation using the actual app role, missing tenant context, forged identity, duplicate processing, job retry, user switching, SameSite-strict session cookie, per-CSM authorization and constrained draft validation. The smoke test verifies the **running separate worker**, not a mocked function call. It requires this demo's seeded account/source alias.
-
-## Deliberately skipped
-Real Salesforce/Gmail/Zendesk/Stripe connectors; enterprise SSO and user provisioning; customer email sending; free-text LLM prose; embedding retrieval; sophisticated identity resolution; automatic retraining/promotion; causal intervention evaluation; action/cooldown tracking; multi-region HA; cold-tier export and production retention enforcement. Source adapters are represented by canonical synthetic records, not purported working SaaS integrations.
-
-## What breaks first at 10×
-1. **Bootstrap/training memory:** JSON generation and replay run in memory. Stream typed records to partitioned Parquet/object storage and process batches; do not increase web memory.
-2. **Connections and reconciliation:** each claimed job uses short-lived connections; daily reconciliation touches all accounts. Add bounded connection pooling, batched claims, incremental dirty-account reconciliation and backlog/age alarms before adding a broker.
-3. **Retention and audit cost:** event and snapshot ledgers grow indefinitely in this demo. Partition by tenant/time, retain a hot operational window, export historical evidence to low-cost object storage with queryable manifests and tested restore. Never discard evidence still referenced by displayed scores without a retrieval path.
-4. **Serving paths:** tenant/account/time indexes are present, but full-portfolio snapshot lookup needs measured EXPLAIN plans and potentially a current-state projection. Preserve immutable history behind that projection.
-5. **Identity/security/availability:** a password-free demo user picker is deliberately not authentication; anyone with the URL can open any demo tenant. Isolation is still enforced below it (session-carried tenant, RLS), so real login only has to replace how the session is set: SSO, revocable server-side sessions, rate limits, per-app roles and managed secrets; separate DB, backups and HTTPS edge.
-6. **LLM concurrency/cost:** requests are bounded, cached per snapshot, and timeout to labelled templates. Concurrent uncached requests can still duplicate provider calls; add a durable draft job/claim and tenant budgets before increasing concurrency. No token-saving claim is made without measurement.
-
-## Release status
-Local Docker image, web, worker and Postgres have run successfully. Desktop/mobile browser flows and autonomous ingestion were exercised. Deployed on the Oracle VM at https://140-245-17-41.sslip.io (Let's Encrypt certificate, worker and replay clock running unattended). Live OpenRouter verification is still pending: no key is configured, so drafts use the labelled template. The private source repository is https://github.com/siddhant2408/fello-csm. The final Loom must be recorded by the owner after code review. Read `docs/RUNBOOK.md` and `docs/WALKTHROUGH.md` before presenting.
+Tests run in their own Compose project, so they never touch the demo database. Operations, HTTPS deployment and recovery are in `docs/RUNBOOK.md`.
