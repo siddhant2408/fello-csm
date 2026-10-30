@@ -73,16 +73,17 @@ OPENBLAS_NUM_THREADS=1 uv run python -m app.evaluate
 Rows in the needs-data lane churn at the base rate, and some churned renewals never reach the ranked lane. The small tenant (t4) uses the rules fallback and has 2 churned renewals in the test year, too few for any metric to mean anything. There is no claimed real retention uplift, causal benefit or statistically significant win.
 
 ## Tests
-Full integration tests require an isolated demo database and no competing worker while deterministic claim/retry tests run. The test override binds Postgres only to loopback.
+Integration tests write reviews, drafts and job claims, and the claim/retry tests need no competing worker. So run them in their own Compose project (`-p fello-test`), never against the demo database. The test override binds that Postgres only to loopback (port 55432). The demo stack can keep running.
 
 ```sh
-docker compose -f compose.yml -f compose.test.yml up -d db
+alias ftest='docker compose -p fello-test -f compose.yml -f compose.test.yml'
+ftest up -d --wait db
 uv run python scripts/local.py bootstrap
-docker compose stop worker
 uv run python scripts/local.py test -q
 uv run ruff check app tests scripts
-docker compose up -d worker
+ftest up -d --no-deps worker       # smoke test needs a worker on the test database
 uv run python -m scripts.smoke_worker
+ftest down --volumes               # discards only the test database
 uv run pip-audit
 ```
 
